@@ -1,0 +1,24 @@
+[package]
+name = "polkaguard"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A CLI tool for analyzing Solidity smart contracts for PolkaVM compatibility"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+tokio = { version = "1.36", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+colored = "2.1"
+indicatif = "0.17"
+walkdir = "2.4"
+regex = "1.10"
+log = "0.4"
+env_logger = "0.11"
+async-trait = "0.1"
+futures = "0.3"
+reqwest = { version = "0.11", features = ["json"] }
+tempfile = "3.10" 
