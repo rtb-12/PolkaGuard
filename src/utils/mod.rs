@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 use walkdir::WalkDir;
 
+#[allow(dead_code)]
 pub fn find_solidity_files(path: &str) -> Result<Vec<String>> {
     let mut files = Vec::new();
     
@@ -17,10 +18,12 @@ pub fn find_solidity_files(path: &str) -> Result<Vec<String>> {
     Ok(files)
 }
 
+#[allow(dead_code)]
 pub fn is_valid_solidity_file(path: &Path) -> bool {
     path.extension().map_or(false, |ext| ext == "sol")
 }
 
+#[allow(dead_code)]
 pub fn extract_contract_name(source: &str) -> Option<String> {
     // Simple regex to find contract name
     let re = regex::Regex::new(r"contract\s+(\w+)").ok()?;
@@ -29,6 +32,7 @@ pub fn extract_contract_name(source: &str) -> Option<String> {
         .map(|m| m.as_str().to_string())
 }
 
+#[allow(dead_code)]
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
     let mut size = bytes as f64;
@@ -42,6 +46,7 @@ pub fn format_bytes(bytes: u64) -> String {
     format!("{:.2} {}", size, UNITS[unit_index])
 }
 
+#[allow(dead_code)]
 pub fn calculate_complexity(source: &str) -> u32 {
     // Simple cyclomatic complexity calculation
     let control_flow_keywords = [

@@ -1,122 +1,187 @@
 use anyhow::Result;
-use std::process::Command;
-use crate::models::{AnalysisResults, ContractMetadata, ResourceUsage};
+use crate::models::{AnalysisResults, ResourceUsage};
+use crate::utils::{extract_contract_name, calculate_complexity};
+use std::fs;
 
 pub struct Analyzer {
-    path: String,
+    contract_path: String,
+    contract_name: Option<String>,
+    complexity: u32,
+    enabled_checks: Vec<String>,
 }
 
 impl Analyzer {
-    pub fn new(path: &str) -> Result<Self> {
+    pub fn new(contract_path: &str, enabled_checks: Option<Vec<String>>) -> Result<Self> {
+        let source = fs::read_to_string(contract_path)?;
+        let contract_name = extract_contract_name(&source);
+        let complexity = calculate_complexity(&source);
+        
         Ok(Self {
-            path: path.to_string(),
+            contract_path: contract_path.to_string(),
+            contract_name,
+            complexity,
+            enabled_checks: enabled_checks.unwrap_or_default(),
         })
     }
 
     pub async fn analyze(&self) -> Result<AnalysisResults> {
-        let contract_metadata = self.load_contract()?;
+        let mut results = AnalysisResults::default();
         
-        let mut results = AnalysisResults {
-            compatibility_issues: Vec::new(),
-            security_vulnerabilities: Vec::new(),
-            resource_usage: ResourceUsage {
-                gas_estimation: 0,
-                storage_usage: 0,
-            },
-            best_practices: Vec::new(),
-        };
-
-        // Run compatibility checks
-        self.check_compatibility(&contract_metadata, &mut results)?;
-
-        // Run security analysis
-        self.analyze_security(&contract_metadata, &mut results)?;
-
-        // Estimate resource usage
-        self.estimate_resources(&contract_metadata, &mut results)?;
-
-        // Check best practices
-        self.check_best_practices(&contract_metadata, &mut results)?;
-
+        // Add contract metadata
+        if let Some(name) = &self.contract_name {
+            results.contract_name = name.clone();
+        }
+        results.complexity = self.complexity;
+        
+        // Run enabled checks or all checks if none specified
+        if self.enabled_checks.is_empty() || self.enabled_checks.contains(&"resources".to_string()) {
+            self.estimate_resources(&mut results)?;
+        }
+        
+        if self.enabled_checks.is_empty() || self.enabled_checks.contains(&"compatibility".to_string()) {
+            self.check_compatibility(&mut results)?;
+        }
+        
+        if self.enabled_checks.is_empty() || self.enabled_checks.contains(&"security".to_string()) {
+            self.check_security(&mut results)?;
+        }
+        
+        if self.enabled_checks.is_empty() || self.enabled_checks.contains(&"best-practices".to_string()) {
+            self.check_best_practices(&mut results)?;
+        }
+        
         Ok(results)
     }
 
-    fn load_contract(&self) -> Result<ContractMetadata> {
-        let source = std::fs::read_to_string(&self.path)?;
+    fn estimate_resources(&self, results: &mut AnalysisResults) -> Result<()> {
+
+        const BASE_REF_TIME: u64 = 21_000;
+        const FUNCTION_CALL_REF_TIME: u64 = 2_100;
+        const STORAGE_WRITE_REF_TIME: u64 = 20_000;
+        const STORAGE_READ_REF_TIME: u64 = 800;
+        const MEMORY_OP_REF_TIME: u64 = 3;
+        const LOG_BASE_REF_TIME: u64 = 375;
+        const LOG_TOPIC_REF_TIME: u64 = 375;
+        const EXTERNAL_CALL_REF_TIME: u64 = 400;
+
+
+        const BASE_PROOF_SIZE: u64 = 1_000;
+        const STORAGE_WRITE_PROOF_SIZE: u64 = 100;
+        const STORAGE_READ_PROOF_SIZE: u64 = 50;
+        const LOG_PROOF_SIZE: u64 = 200;
+
+
+        const STORAGE_DEPOSIT_PER_BYTE: u64 = 1_000_000_000; // 1 ETH per byte
+
+        let source = fs::read_to_string(&self.contract_path)?;
         
-        let output = Command::new("solc")
-            .arg("--version")
-            .output()?;
-        
-        Ok(ContractMetadata {
-            name: "Contract".to_string(),
-            version: "0.1.0".to_string(),
-            compiler_version: String::from_utf8_lossy(&output.stdout).to_string(),
-            source_code: source,
-        })
+
+        let function_calls = source.matches("function").count();
+        let storage_writes = source.matches("storage").count();
+        let storage_reads = source.matches("load").count();
+        let memory_ops = source.matches("memory").count();
+        let log_ops = source.matches("emit").count();
+        let external_calls = source.matches("call").count();
+
+
+        let mut ref_time = BASE_REF_TIME;
+        ref_time += function_calls as u64 * FUNCTION_CALL_REF_TIME;
+        ref_time += storage_writes as u64 * STORAGE_WRITE_REF_TIME;
+        ref_time += storage_reads as u64 * STORAGE_READ_REF_TIME;
+        ref_time += memory_ops as u64 * MEMORY_OP_REF_TIME;
+        ref_time += log_ops as u64 * (LOG_BASE_REF_TIME + LOG_TOPIC_REF_TIME);
+        ref_time += external_calls as u64 * EXTERNAL_CALL_REF_TIME;
+
+
+        ref_time = (ref_time as f64 * 1.2) as u64;
+
+
+        let mut proof_size = BASE_PROOF_SIZE;
+        proof_size += storage_writes as u64 * STORAGE_WRITE_PROOF_SIZE;
+        proof_size += storage_reads as u64 * STORAGE_READ_PROOF_SIZE;
+        proof_size += log_ops as u64 * LOG_PROOF_SIZE;
+
+
+        let storage_usage = (storage_writes * 32) as u64; // Assuming 32 bytes per storage slot
+        let storage_deposit = storage_usage * STORAGE_DEPOSIT_PER_BYTE;
+
+        results.resource_usage = ResourceUsage {
+            ref_time,
+            proof_size,
+            storage_deposit,
+            storage_usage,
+        };
+
+        Ok(())
     }
 
-    fn check_compatibility(&self, metadata: &ContractMetadata, results: &mut AnalysisResults) -> Result<()> {
-        // Check for EVM-specific features that might not work in PolkaVM
-        let evm_specific_patterns = [
-            "assembly",
+    fn check_compatibility(&self, results: &mut AnalysisResults) -> Result<()> {
+        let source = fs::read_to_string(&self.contract_path)?;
+        
+
+        let unsupported_opcodes = [
             "selfdestruct",
-            "suicide",
-            "block.coinbase",
-            "block.difficulty",
+            "extcodesize",
+            "extcodehash",
+            "extcodecopy",
+            "blockhash",
+            "blobhash",
         ];
 
-        for pattern in evm_specific_patterns {
-            if metadata.source_code.contains(pattern) {
-                results.compatibility_issues.push(
-                    format!("Contract uses EVM-specific feature: {}", pattern)
-                );
+        for opcode in unsupported_opcodes {
+            if source.contains(opcode) {
+                results.compatibility_issues.push(format!(
+                    "Unsupported opcode '{}' used in contract",
+                    opcode
+                ));
             }
         }
 
         Ok(())
     }
 
-    fn analyze_security(&self, metadata: &ContractMetadata, results: &mut AnalysisResults) -> Result<()> {
-        // Check for common security vulnerabilities
-        let security_patterns = [
-            ("reentrancy", "Potential reentrancy vulnerability detected"),
-            ("unchecked-send", "Unchecked send/call detected"),
-            ("integer-overflow", "Potential integer overflow detected"),
-            ("uninitialized-storage", "Uninitialized storage pointer detected"),
-        ];
+    fn check_security(&self, results: &mut AnalysisResults) -> Result<()> {
+        let source = fs::read_to_string(&self.contract_path)?;
+        
 
-        for (pattern, message) in security_patterns {
-            if metadata.source_code.contains(pattern) {
-                results.security_vulnerabilities.push(message.to_string());
-            }
+        if source.contains("call") && !source.contains("reentrancy") {
+            results.security_vulnerabilities.push(
+                "Potential reentrancy vulnerability: External calls without reentrancy guard".to_string()
+            );
+        }
+
+
+        if source.contains("send") && !source.contains("require") {
+            results.security_vulnerabilities.push(
+                "Unchecked send operation: Missing require statement after send".to_string()
+            );
         }
 
         Ok(())
     }
 
-    fn estimate_resources(&self, metadata: &ContractMetadata, results: &mut AnalysisResults) -> Result<()> {
-        // Simple estimation based on contract size and complexity currently not implemented( rough estimation)
-        let size = metadata.source_code.len() as u64;
-        results.resource_usage.gas_estimation = size * 100; 
-        results.resource_usage.storage_usage = size / 2; 
+    fn check_best_practices(&self, results: &mut AnalysisResults) -> Result<()> {
+        let source = fs::read_to_string(&self.contract_path)?;
+        
 
-        Ok(())
-    }
+        if !source.contains("pragma solidity") {
+            results.best_practices.push(
+                "Missing pragma directive: Should specify Solidity version".to_string()
+            );
+        }
 
-    fn check_best_practices(&self, metadata: &ContractMetadata, results: &mut AnalysisResults) -> Result<()> {
-        // Check for Solidity best practices
-        let best_practices = [
-            ("pragma solidity", "Use specific compiler version"),
-            ("require(", "Use require statements for input validation"),
-            ("event ", "Define events for important state changes"),
-            ("modifier ", "Use modifiers for access control"),
-        ];
 
-        for (pattern, message) in best_practices {
-            if !metadata.source_code.contains(pattern) {
-                results.best_practices.push(format!("Missing: {}", message));
-            }
+        if !source.contains("SPDX-License-Identifier") {
+            results.best_practices.push(
+                "Missing license identifier: Should include SPDX-License-Identifier".to_string()
+            );
+        }
+
+
+        if source.contains("function") && !source.contains("public") && !source.contains("private") && !source.contains("internal") && !source.contains("external") {
+            results.best_practices.push(
+                "Missing function visibility modifier".to_string()
+            );
         }
 
         Ok(())

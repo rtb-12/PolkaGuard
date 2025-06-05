@@ -54,4 +54,4 @@ out/
 *.temp
 .cache/
 
-testContracts/
+contracts/

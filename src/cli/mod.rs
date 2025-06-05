@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use anyhow::Result;
 
 mod handler;
 pub use handler::handle_command;
@@ -19,28 +18,28 @@ pub struct Cli {
     #[arg(short, long, default_value = "text")]
     pub format: String,
 
-    /// Run specific analysis checks
-    #[arg(short, long)]
+    /// Run specific analysis checks (comma-separated list)
+    #[arg(short, long, value_delimiter = ',')]
     pub checks: Option<Vec<String>>,
 
     /// Stack size for PolkaVM (in bytes)
-    #[arg(long, default_value = "32768")]
-    pub stack_size: u32,
+    #[arg(long)]
+    pub stack_size: Option<u32>,
 
     /// Heap size for PolkaVM (in bytes)
-    #[arg(long, default_value = "65536")]
-    pub heap_size: u32,
+    #[arg(long)]
+    pub heap_size: Option<u32>,
 
     /// Optimization level (0-3, s, z)
-    #[arg(short, long, default_value = "3")]
-    pub optimization: String,
+    #[arg(short, long)]
+    pub optimization: Option<String>,
 
     /// Path to solc executable
     #[arg(long)]
     pub solc: Option<String>,
 
     /// Generate debug information
-    #[arg(short)]
+    #[arg(short, long)]
     pub debug: bool,
 
     #[command(subcommand)]
@@ -55,6 +54,8 @@ pub enum Commands {
         #[arg(short, long, default_value = "polkaguard.json")]
         config_path: String,
     },
+    /// Analyze a Solidity contract for PolkaVM compatibility
+    Analyze,
     /// List all available analysis checks
     ListChecks,
     /// Show detailed information about a specific check
@@ -63,15 +64,7 @@ pub enum Commands {
         check_name: String,
     },
     /// Disassemble a PolkaVM contract
-    Disassemble {
-        /// Path to the PolkaVM contract file
-        #[arg(short, long)]
-        contract_path: String,
-    },
+    Disassemble,
     /// Analyze contract memory usage
-    MemoryAnalysis {
-        /// Path to the contract file
-        #[arg(short, long)]
-        contract_path: String,
-    },
+    MemoryAnalysis,
 } 

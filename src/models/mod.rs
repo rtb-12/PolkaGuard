@@ -1,17 +1,21 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct AnalysisResults {
+    pub contract_name: String,
+    pub complexity: u32,
     pub compatibility_issues: Vec<String>,
     pub security_vulnerabilities: Vec<String>,
     pub resource_usage: ResourceUsage,
     pub best_practices: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ResourceUsage {
-    pub gas_estimation: u64,
-    pub storage_usage: u64,
+    pub ref_time: u64,        
+    pub proof_size: u64,      
+    pub storage_deposit: u64, 
+    pub storage_usage: u64,   
 }
 
 #[derive(Debug, Serialize, Deserialize)]
