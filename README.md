@@ -11,6 +11,7 @@
 
 A comprehensive Rust-based CLI tool for analyzing Solidity smart contracts targeting PolkaVM deployment via the pallet-revive module.
 
+Demo : [https://youtu.be/k75scr4ofBQ](https://youtu.be/k75scr4ofBQ)
 ## 🚀 Key Features
 
 ### ✅ **Smart Contract Analysis**
