@@ -1,4 +1,4 @@
-# DOT-Based Cost Calculation Implementation Summary
+# Cost Calculation Implementation Summary
 
 ## Overview
 
