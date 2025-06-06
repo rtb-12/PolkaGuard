@@ -1,15 +1,16 @@
-
-# PolkaGuard 
+# PolkaGuard
 
 <div align="center">
   <img src="assets/PolkaGuard.png" alt="PolkaGuard Logo" width="200"/>
 
-  [![Rust](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
-  [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-  [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+[![Rust](https://img.shields.io/badge/rust-1.70+-blue.svg)](https://www.rust-lang.org)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+
 </div>
 
-A comprehensive Rust-based CLI tool for analyzing Solidity smart contracts targeting PolkaVM deployment via the pallet-revive module. 
+A comprehensive Rust-based CLI tool for analyzing Solidity smart contracts targeting PolkaVM deployment via the pallet-revive module.
+
 ## 🚀 Key Features
 
 ### ✅ **Smart Contract Analysis**
@@ -217,7 +218,7 @@ chmod +x test_polkaguard.sh
 
 ### Quick Links
 
-- **[Cost Calculation Guide](DOT_COST_IMPLEMENTATION.md)**: Detailed cost methodology
+- **[Cost Calculation Guide](DOT_COST_IMPLEMENTATION.md)**: Detailed DOT/KSM cost methodology
 - **[Configuration Reference](docs/CONFIG.md)**: Complete configuration options and examples
 - **[Network Guide](docs/NETWORKS.md)**: Multi-network support and cost comparisons
 - **[Development Guide](docs/DEVELOPMENT.md)**: Architecture, contributing, and extending PolkaGuard

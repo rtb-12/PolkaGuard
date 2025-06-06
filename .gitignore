@@ -22,9 +22,6 @@ Cargo.lock
 coverage/
 *.profraw
 
-# Documentation
-/doc/
-/docs/
 
 # Contract artifacts
 *.polkavm
