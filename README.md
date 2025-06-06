@@ -43,12 +43,13 @@ A comprehensive Rust-based CLI tool for analyzing Solidity smart contracts targe
 
 - **Rust 1.70+**: [Install Rust](https://rustup.rs/)
 - **Solidity Compiler**: `npm install -g solc` or download from [releases](https://github.com/ethereum/solidity/releases)
+-  **Resolc Compiler**: download from [releases](https://github.com/paritytech/revive/releases)
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/polkaguard.git
+git clone https://github.com/rtb-12/polkaguard.git
 cd polkaguard
 
 # Build optimized release
@@ -216,7 +217,7 @@ chmod +x test_polkaguard.sh
 
 ### Quick Links
 
-- **[Cost Calculation Guide](DOT_COST_IMPLEMENTATION.md)**: Detailed DOT/KSM cost methodology
+- **[Cost Calculation Guide](DOT_COST_IMPLEMENTATION.md)**: Detailed cost methodology
 - **[Configuration Reference](docs/CONFIG.md)**: Complete configuration options and examples
 - **[Network Guide](docs/NETWORKS.md)**: Multi-network support and cost comparisons
 - **[Development Guide](docs/DEVELOPMENT.md)**: Architecture, contributing, and extending PolkaGuard
