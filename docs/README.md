@@ -15,7 +15,7 @@ Welcome to the comprehensive documentation for PolkaGuard - a Rust-based CLI too
 
 ### Implementation Details
 
-- **[DOT_COST_IMPLEMENTATION.md](../COST_IMPLEMENTATION.md)**: Technical implementation summary
+- **[COST_IMPLEMENTATION.md](../COST_IMPLEMENTATION.md)**: Technical implementation summary
   - ✅ Cost calculation methodology
   - ✅ Network-specific configurations
   - ✅ Implementation changes overview
