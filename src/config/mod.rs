@@ -2,6 +2,33 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use anyhow::Result;
 
+/// Network configuration for cost calculations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    pub name: String,
+    pub token_symbol: String,
+    pub token_decimals: u8,
+    pub ref_time_price_per_unit: u64,    
+    pub proof_size_price_per_byte: u64,  
+    pub storage_deposit_per_byte: u64,   
+    pub token_price_usd: f64,            
+}
+
+/// Cost calculation result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostBreakdown {
+    pub ref_time_cost_plancks: u64,
+    pub proof_size_cost_plancks: u64,
+    pub storage_deposit_plancks: u64,
+    pub total_cost_plancks: u64,
+    pub ref_time_cost_tokens: f64,
+    pub proof_size_cost_tokens: f64,
+    pub storage_deposit_tokens: f64,
+    pub total_cost_tokens: f64,
+    pub total_cost_usd: f64,
+    pub network: NetworkConfig,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub enabled_checks: Vec<String>,
@@ -282,4 +309,155 @@ impl Config {
         fs::write(path, contents)?;
         Ok(())
     }
-} 
+}
+
+impl NetworkConfig {
+    /// Polkadot mainnet configuration
+    pub fn polkadot() -> Self {
+        Self {
+            name: "Polkadot".to_string(),
+            token_symbol: "DOT".to_string(),
+            token_decimals: 10,
+            
+            // These values are derived from Polkadot's runtime configuration
+            ref_time_price_per_unit: 100,      // ~0.0000000001 DOT per ref_time unit
+            proof_size_price_per_byte: 1_000,  // ~0.000000001 DOT per proof_size byte
+            storage_deposit_per_byte: 1_000_000_000, // ~0.1 DOT per byte
+            token_price_usd: 7.0, // Approximate DOT price (should be updated dynamically)
+        }
+    }
+
+    /// Kusama network configuration
+    pub fn kusama() -> Self {
+        Self {
+            name: "Kusama".to_string(),
+            token_symbol: "KSM".to_string(),
+            token_decimals: 12,
+            ref_time_price_per_unit: 100,
+            proof_size_price_per_byte: 1_000,
+            storage_deposit_per_byte: 100_000_000, // Lower storage deposit than Polkadot
+            token_price_usd: 25.0, // Approximate KSM price
+        }
+    }
+
+    /// Westend testnet configuration
+    pub fn westend() -> Self {
+        Self {
+            name: "Westend".to_string(),
+            token_symbol: "WND".to_string(),
+            token_decimals: 12,
+            ref_time_price_per_unit: 100,
+            proof_size_price_per_byte: 1_000,
+            storage_deposit_per_byte: 100_000_000,
+            token_price_usd: 0.0, // Testnet tokens have no real value
+        }
+    }
+
+    /// Rococo testnet configuration
+    pub fn rococo() -> Self {
+        Self {
+            name: "Rococo".to_string(),
+            token_symbol: "ROC".to_string(),
+            token_decimals: 12,
+            ref_time_price_per_unit: 100,
+            proof_size_price_per_byte: 1_000,
+            storage_deposit_per_byte: 100_000_000,
+            token_price_usd: 0.0, // Testnet tokens have no real value
+        }
+    }
+
+    /// Local development network configuration
+    pub fn local() -> Self {
+        Self {
+            name: "Local".to_string(),
+            token_symbol: "UNIT".to_string(),
+            token_decimals: 12,
+            ref_time_price_per_unit: 100,
+            proof_size_price_per_byte: 1_000,
+            storage_deposit_per_byte: 100_000_000,
+            token_price_usd: 0.0, // Development tokens have no real value
+        }
+    }
+
+    /// Get network configuration by name
+    pub fn by_name(name: &str) -> Self {
+        match name.to_lowercase().as_str() {
+            "polkadot" => Self::polkadot(),
+            "kusama" => Self::kusama(),
+            "westend" => Self::westend(),
+            "rococo" => Self::rococo(),
+            "local" | "development" => Self::local(),
+            _ => Self::polkadot(), // Default to Polkadot
+        }
+    }
+
+    /// Convert plancks to human-readable token amount
+    pub fn plancks_to_token(&self, plancks: u64) -> f64 {
+        plancks as f64 / 10_u64.pow(self.token_decimals as u32) as f64
+    }
+
+    /// Convert token amount to plancks
+    pub fn token_to_plancks(&self, tokens: f64) -> u64 {
+        (tokens * 10_u64.pow(self.token_decimals as u32) as f64) as u64
+    }
+}
+
+impl CostBreakdown {
+    /// Calculate cost breakdown 
+    /// 
+    /// # Arguments
+    /// * `ref_time` - Reference time in picoseconds (weight units)
+    /// * `proof_size` - Proof size in bytes
+    /// * `storage_deposit` - Storage deposit in plancks
+    /// * `network` - Network configuration
+    /// 
+    /// # Cost Calculation Methodology
+    /// 
+    /// The cost calculation is based on Polkadot's Weight system:
+    /// 
+    /// 1. **ref_time**: Represents the computational complexity of an operation
+    ///    - Measured in picoseconds of execution time
+    ///    - Each unit costs `ref_time_price_per_unit` plancks
+    ///    - Based on the computational resources consumed
+    /// 
+    /// 2. **proof_size**: Represents the amount of data that needs to be proved
+    ///    - Measured in bytes
+    ///    - Each byte costs `proof_size_price_per_byte` plancks
+    ///    - Related to the state proof verification cost
+    /// 
+    /// 3. **storage_deposit**: One-time deposit for storing data on-chain
+    ///    - Measured in plancks
+    ///    - Refundable when storage is freed
+    ///    - Based on the economic security model
+    /// 
+    /// Total cost = (ref_time × ref_time_price) + (proof_size × proof_size_price) + storage_deposit
+    pub fn calculate(
+        ref_time: u64,
+        proof_size: u64,
+        storage_deposit: u64,
+        network: NetworkConfig,
+    ) -> Self {
+        let ref_time_cost_plancks = ref_time * network.ref_time_price_per_unit;
+        let proof_size_cost_plancks = proof_size * network.proof_size_price_per_byte;
+        let total_cost_plancks = ref_time_cost_plancks + proof_size_cost_plancks + storage_deposit;
+
+        let ref_time_cost_tokens = network.plancks_to_token(ref_time_cost_plancks);
+        let proof_size_cost_tokens = network.plancks_to_token(proof_size_cost_plancks);
+        let storage_deposit_tokens = network.plancks_to_token(storage_deposit);
+        let total_cost_tokens = network.plancks_to_token(total_cost_plancks);
+        let total_cost_usd = total_cost_tokens * network.token_price_usd;
+
+        Self {
+            ref_time_cost_plancks,
+            proof_size_cost_plancks,
+            storage_deposit_plancks: storage_deposit,
+            total_cost_plancks,
+            ref_time_cost_tokens,
+            proof_size_cost_tokens,
+            storage_deposit_tokens,
+            total_cost_tokens,
+            total_cost_usd,
+            network,
+        }
+    }
+}

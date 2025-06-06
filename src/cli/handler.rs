@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crate::config::Config;
+use crate::config::{Config, NetworkConfig, CostBreakdown};
 use crate::cli::{Commands, Cli};
 use crate::analyzer::Analyzer;
 use crate::linter::{Linter, LinterConfig, LintSeverity};
@@ -29,6 +29,9 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
 
             if cli.format != "json" {
                 println!("Analyzing contract: {}", cli.path);
+                if let Some(checks) = &cli.checks {
+                    println!("Running checks: {}", checks.join(", "));
+                }
                 if let Some(stack_size) = cli.stack_size {
                     println!("Stack size: {} bytes", stack_size);
                 }
@@ -132,11 +135,18 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                 }
             }
 
-
+            let network = NetworkConfig::by_name(&cli.network);
             let analyzer = Analyzer::new(&cli.path, cli.checks.clone())?;
-            let results = analyzer.analyze().await?;
+            let results = analyzer.analyze_with_network(&network).await?;
 
             if cli.format == "json" {
+                let cost_breakdown = CostBreakdown::calculate(
+                    results.resource_usage.ref_time,
+                    results.resource_usage.proof_size,
+                    results.resource_usage.storage_deposit,
+                    network.clone(),
+                );
+
                 if let Some(obj) = output.as_object_mut() {
                     obj.insert("analysis_results".to_string(), json!({
                         "contract_name": results.contract_name,
@@ -150,6 +160,18 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                             "storage_usage": results.resource_usage.storage_usage,
                             "stack_size": cli.stack_size.map(|s| s as u64),
                             "heap_size": cli.heap_size.map(|h| h as u64)
+                        },
+                        "cost_breakdown": {
+                            "network": cost_breakdown.network,
+                            "ref_time_cost_plancks": cost_breakdown.ref_time_cost_plancks,
+                            "proof_size_cost_plancks": cost_breakdown.proof_size_cost_plancks,
+                            "storage_deposit_plancks": cost_breakdown.storage_deposit_plancks,
+                            "total_cost_plancks": cost_breakdown.total_cost_plancks,
+                            "ref_time_cost_tokens": cost_breakdown.ref_time_cost_tokens,
+                            "proof_size_cost_tokens": cost_breakdown.proof_size_cost_tokens,
+                            "storage_deposit_tokens": cost_breakdown.storage_deposit_tokens,
+                            "total_cost_tokens": cost_breakdown.total_cost_tokens,
+                            "total_cost_usd": cost_breakdown.total_cost_usd
                         },
                         "best_practices": results.best_practices
                     }));
@@ -189,19 +211,58 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                 
 
                 println!("\n2. Cost Implications:");
-                let ref_time_price = 0.000000001;
-                let proof_size_price = 0.0000000001;
-                let eth_price = 2000.0;
+                let cost_breakdown = CostBreakdown::calculate(
+                    results.resource_usage.ref_time,
+                    results.resource_usage.proof_size,
+                    results.resource_usage.storage_deposit,
+                    network.clone(),
+                );
                 
-                let ref_time_cost = results.resource_usage.ref_time as f64 * ref_time_price;
-                let proof_size_cost = results.resource_usage.proof_size as f64 * proof_size_price;
-                let total_cost_eth = ref_time_cost + proof_size_cost + (results.resource_usage.storage_deposit as f64 / 1e18);
-                let total_cost_usd = total_cost_eth * eth_price;
+                println!("   Network: {} ({})", cost_breakdown.network.name, cost_breakdown.network.token_symbol);
+                println!("   - Computation Cost: {:.6} {} ({} plancks)", 
+                    cost_breakdown.ref_time_cost_tokens, 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.ref_time_cost_plancks
+                );
+                println!("   - Proof Size Cost: {:.6} {} ({} plancks)", 
+                    cost_breakdown.proof_size_cost_tokens, 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.proof_size_cost_plancks
+                );
+                println!("   - Storage Deposit: {:.6} {} ({} plancks)", 
+                    cost_breakdown.storage_deposit_tokens, 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.storage_deposit_plancks
+                );
+                println!("   - Total Estimated Cost: {:.6} {}", 
+                    cost_breakdown.total_cost_tokens, 
+                    cost_breakdown.network.token_symbol
+                );
+                if cost_breakdown.total_cost_usd > 0.0 {
+                    println!("     (≈ ${:.2} USD)", cost_breakdown.total_cost_usd);
+                }
                 
-                println!("   - Computation Cost: {:.6} ETH", ref_time_cost);
-                println!("   - Proof Size Cost: {:.6} ETH", proof_size_cost);
-                println!("   - Storage Deposit: {:.6} ETH", results.resource_usage.storage_deposit as f64 / 1e18);
-                println!("   - Total Estimated Cost: {:.6} ETH (${:.2})", total_cost_eth, total_cost_usd);
+                // Add cost calculation methodology explanation
+                println!("\n   📊 Cost Calculation Methodology:");
+                println!("     • ref_time: {} units × {} plancks/unit = {} plancks", 
+                    results.resource_usage.ref_time,
+                    cost_breakdown.network.ref_time_price_per_unit,
+                    cost_breakdown.ref_time_cost_plancks
+                );
+                println!("     • proof_size: {} bytes × {} plancks/byte = {} plancks", 
+                    results.resource_usage.proof_size,
+                    cost_breakdown.network.proof_size_price_per_byte,
+                    cost_breakdown.proof_size_cost_plancks
+                );
+                println!("     • storage_deposit: {} bytes × {} plancks/byte = {} plancks", 
+                    results.resource_usage.storage_usage,
+                    cost_breakdown.network.storage_deposit_per_byte,
+                    cost_breakdown.storage_deposit_plancks
+                );
+                println!("     • 1 {} = 10^{} plancks", 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.network.token_decimals
+                );
                 
 
                 println!("\n3. Optimization Suggestions:");
@@ -340,6 +401,19 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
 
             println!("Disassembling contract: {}", cli.path);
             
+            // Clean up existing files if overwrite is enabled
+            if cli.overwrite {
+                // Get the correct file name that resolc generates
+                let contract_name = cli.path
+                    .split('/')
+                    .last()
+                    .unwrap_or(&cli.path);
+                let pvm_file = format!("{}:Owner.pvm", contract_name);
+                if fs::metadata(&pvm_file).is_ok() {
+                    fs::remove_file(&pvm_file).ok();
+                }
+            }
+            
 
             let solc_output = Command::new("solc")
                 .args(["--bin", "--optimize"])
@@ -365,28 +439,34 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
             let temp_bytecode = format!("{}.bin", cli.path);
             fs::write(&temp_bytecode, bytecode)?;
 
-
-            let polkavm_output = format!("{}.polkavm", cli.path);
-            let resolc_output = Command::new("resolc")
-                .arg(&cli.path)
+            let mut resolc_cmd = Command::new("resolc");
+            resolc_cmd.arg(&cli.path)
                 .arg("--bin")
                 .arg("-O3")
                 .arg("--output-dir")
-                .arg(".")
-                .output()?;
+                .arg(".");
+            
+            if cli.overwrite {
+                resolc_cmd.arg("--overwrite");
+            }
+            
+            let resolc_output = resolc_cmd.output()?;
 
             if !resolc_output.status.success() {
                 return Err(anyhow::anyhow!("Failed to translate to PolkaVM: {}", 
                     String::from_utf8_lossy(&resolc_output.stderr)));
             }
 
-
-            let _polkavm_bytecode = fs::read_to_string(&polkavm_output)?;
-
+            // Get the actual .pvm file name that resolc generates
+            let contract_name = cli.path
+                .split('/')
+                .last()
+                .unwrap_or(&cli.path);
+            let pvm_file = format!("{}:Owner.pvm", contract_name);
 
             let output = Command::new("polkatool")
                 .arg("disassemble")
-                .arg(&format!("{}.polkavm", cli.path))
+                .arg(&pvm_file)
                 .output()?;
 
             if !output.status.success() {

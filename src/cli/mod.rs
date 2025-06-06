@@ -42,6 +42,14 @@ pub struct Cli {
     #[arg(short, long)]
     pub debug: bool,
 
+    /// Overwrite existing files without prompting
+    #[arg(long)]
+    pub overwrite: bool,
+
+    /// Target network for cost calculations (polkadot, kusama, westend, rococo, local)
+    #[arg(short, long, default_value = "polkadot", help = "Target network for cost calculations. Available: polkadot, kusama, westend, rococo, local")]
+    pub network: String,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -67,4 +75,4 @@ pub enum Commands {
     Disassemble,
     /// Analyze contract memory usage
     MemoryAnalysis,
-} 
+}
