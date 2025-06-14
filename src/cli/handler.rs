@@ -10,7 +10,41 @@ use std::fs;
 use std::process::Command;
 use sha2::Digest;
 
+/// Display a colorful startup banner
+fn display_startup_banner() {
+    println!("\n🌟 ═══════════════════════════════════════════════════════════════ 🌟");
+    println!("🛡️                    POLKAGUARD ACTIVATED                      🛡️");
+    println!("⚡              Smart Contract Security Guardian               ⚡");
+    println!("🔐                Zero-Knowledge Proof Powered                🔐");
+    println!("🌟 ═══════════════════════════════════════════════════════════════ 🌟\n");
+}
+
+/// Display colorful status messages
+fn print_status(icon: &str, message: &str) {
+    println!("{} {}", icon, message);
+}
+
+/// Display success message with animation
+fn print_success(message: &str) {
+    println!("✅ 🎉 {} 🎉", message);
+}
+
+/// Display warning message
+fn print_warning(message: &str) {
+    println!("⚠️  💛 {} 💛", message);
+}
+
+/// Display error message
+fn print_error(message: &str) {
+    println!("❌ 🔴 {} 🔴", message);
+}
+
 pub async fn handle_command(cli: &Cli) -> Result<()> {
+    // Display startup banner for non-JSON output
+    if cli.format != "json" {
+        display_startup_banner();
+    }
+
     match &cli.command {
         Commands::Init { config_path } => {
             let config = Config::default();
@@ -24,7 +58,7 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                     })
                 );
             } else {
-                println!("Created new configuration file at: {}", config_path);
+                print_success(&format!("Configuration initialized at: {}", config_path));
             }
         }
         Commands::Prove {
@@ -37,10 +71,10 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                 return Err(anyhow::anyhow!("Contract file not found: {}", cli.path));
             }
 
-            println!("🔐 Generating ZK proof for contract: {}", cli.path);
-            println!("📁 Output directory: {}", output_dir);
-            println!("🔧 Circuit type: {}", circuit_type);
-            println!("🔒 Security level: {} bits", security_level);
+            print_status("🔐", &format!("Generating ZK proof for contract: {}", cli.path));
+            print_status("📁", &format!("Output directory: {}", output_dir));
+            print_status("🔧", &format!("Circuit type: {}", circuit_type));
+            print_status("🔒", &format!("Security level: {} bits", security_level));
 
             // First, run the analysis to get results
             let network = NetworkConfig::by_name(&cli.network);

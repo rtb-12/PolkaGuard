@@ -40,4 +40,9 @@ ark-crypto-primitives = "0.4"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
-rand_chacha = "0.3" 
+rand_chacha = "0.3"
+
+# Process management dependencies for PolkaVM fork mode
+sysinfo = "0.30"
+which = "6.0"
+dirs = "5.0"
