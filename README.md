@@ -12,7 +12,16 @@
 A comprehensive Rust-based CLI tool for analyzing Solidity smart contracts targeting PolkaVM deployment via the pallet-revive module.
 
 Demo : [https://youtu.be/k75scr4ofBQ](https://youtu.be/k75scr4ofBQ)
+
 ## 🚀 Key Features
+
+### 🔍 **Zero-Knowledge Exploit Proof Generation** 🆕
+
+- **Private Vulnerability Disclosure**: Generate cryptographic proofs of exploit knowledge without revealing report details
+- **Groth16 Proofs**: Full implementation using arkworks library with actual trusted setup
+- **Merkle Tree Circuits**: Advanced ZK circuits with merkle tree validation for report integrity
+- **Anonymous Security Research**: Prove you found an exploit without revealing the attack vector
+- **On-chain Verification**: Generate Solidity verifier contracts for blockchain validation
 
 ### ✅ **Smart Contract Analysis**
 
@@ -32,6 +41,7 @@ Demo : [https://youtu.be/k75scr4ofBQ](https://youtu.be/k75scr4ofBQ)
 
 ### 🔧 **Advanced CLI Features**
 
+- **Zero-Knowledge Proofs**: `exploit-report` command for generating ZK proofs from markdown reports
 - **Selective Analysis**: `--checks compatibility,security,resources,best-practices`
 - **Network Selection**: `--network polkadot|kusama|westend|rococo|local`
 - **Multiple Output Formats**: Text with colors/emojis and structured JSON
@@ -45,7 +55,7 @@ Demo : [https://youtu.be/k75scr4ofBQ](https://youtu.be/k75scr4ofBQ)
 
 - **Rust 1.70+**: [Install Rust](https://rustup.rs/)
 - **Solidity Compiler**: `npm install -g solc` or download from [releases](https://github.com/ethereum/solidity/releases)
--  **Resolc Compiler**: download from [releases](https://github.com/paritytech/revive/releases)
+- **Resolc Compiler**: download from [releases](https://github.com/paritytech/revive/releases)
 
 ### Build from Source
 
@@ -77,6 +87,32 @@ polkaguard --path ./contracts/MyContract.sol --checks security,compatibility ana
 
 # Different network with JSON output
 polkaguard --path ./contracts/MyContract.sol --network kusama --format json analyze
+```
+
+### 🔐 Zero-Knowledge Exploit Proof Generation
+
+```bash
+# Generate ZK proof from exploit report
+polkaguard --path ./contracts exploit-report \
+  --report-path ./vulnerability_report.md \
+  --contract-address 0x742d35Cc6634C0532925a3b8D9BAcD2d6b7C3756 \
+  --exploit-signature "reentrancy_withdrawal_exploit"
+
+# Custom proof parameters with verifier generation
+polkaguard --path ./contracts exploit-report \
+  --report-path ./detailed_report.md \
+  --contract-address 0x1234567890abcdef1234567890abcdef12345678 \
+  --exploit-signature "integer_overflow_rewards" \
+  --chunk-size 64 \
+  --tree-height 16 \
+  --generate-verifier \
+  --output-dir ./zk_proofs
+
+# JSON output for programmatic use
+polkaguard --path ./contracts --format json exploit-report \
+  --report-path ./report.md \
+  --contract-address 0xabcdef1234567890abcdef1234567890abcdef12 \
+  --exploit-signature "access_control_bypass"
 ```
 
 ### Network Cost Comparison
@@ -223,6 +259,7 @@ chmod +x test_polkaguard.sh
 - **[Configuration Reference](docs/CONFIG.md)**: Complete configuration options and examples
 - **[Network Guide](docs/NETWORKS.md)**: Multi-network support and cost comparisons
 - **[Development Guide](docs/DEVELOPMENT.md)**: Architecture, contributing, and extending PolkaGuard
+- **[ZK Exploit Proofs](docs/ZK_EXPLOIT_PROOFS.md)**: Zero-knowledge vulnerability disclosure and anonymous reporting
 
 ### Key Resources
 

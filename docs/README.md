@@ -58,6 +58,17 @@ Contributing and extending PolkaGuard:
 - ✅ Release process
 - ✅ Contributing guidelines
 
+#### [ZK Exploit Proofs](ZK_EXPLOIT_PROOFS.md)
+
+Zero-knowledge vulnerability disclosure system:
+
+- ✅ Anonymous vulnerability reporting with cryptographic guarantees
+- ✅ Groth16 ZK-SNARK implementation for exploit proof generation
+- ✅ Privacy-preserving disclosure without revealing attack vectors
+- ✅ Blockchain-ready Solidity verifier contract generation
+- ✅ Merkle tree-based report commitment and validation
+- ✅ Complete technical implementation and usage examples
+
 ## 🚀 Feature Status
 
 ### ✅ Completed Features
