@@ -4,11 +4,14 @@
 //! verifier contracts for on-chain verification.
 
 use anyhow::{anyhow, Result};
-use ark_bn254::{Bn254, Fr, G1Affine, G2Affine};
+use ark_bn254::{Bn254, Fr, Fq, G1Affine, G2Affine};
 use ark_ff::PrimeField;
-use ark_groth16::{Groth16, Proof, VerifyingKey};
+use ark_groth16::{Groth16, Proof, VerifyingKey, VerifyingKey as VerifyingKeyTrait};
+use ark_snark::SNARK;
 use ark_serialize::CanonicalDeserialize;
-use ark_std::rand::rngs::OsRng;
+use ark_std::rand::rngs::{StdRng, OsRng};
+use ark_std::rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -48,13 +51,15 @@ pub async fn verify_groth16_proof(proof_package: &ProofPackage) -> Result<Verifi
     let start_time = std::time::Instant::now();
     
     // Parse the verification key from the proof package
-    let vk = parse_verification_key(&proof_package.verification_key)?;
+    let vk_value: Value = serde_json::from_str(&proof_package.verification_key)?;
+    let vk = parse_verification_key(&vk_value)?;
     
     // Parse the proof from the proof package
-    let proof = parse_proof(&proof_package.proof)?;
+    let proof_value: Value = serde_json::from_str(&proof_package.proof)?;
+    let proof = parse_proof(&proof_value)?;
     
     // Parse public inputs from public signals
-    let public_inputs = parse_public_inputs(&proof_package.public_signals)?;
+    let public_inputs = parse_public_inputs_from_struct(&proof_package.public_signals)?;
     
     // Perform actual Groth16 verification
     let is_valid = match Groth16::<Bn254>::verify(&vk, &public_inputs, &proof) {
@@ -129,10 +134,10 @@ fn parse_g1_point(point_json: &Value) -> Result<G1Affine> {
     let x_str = x_str.strip_prefix("0x").unwrap_or(x_str);
     let y_str = y_str.strip_prefix("0x").unwrap_or(y_str);
     
-    let x = Fr::from_str(x_str).map_err(|e| anyhow!("Invalid G1 x coordinate: {}", e))?;
-    let y = Fr::from_str(y_str).map_err(|e| anyhow!("Invalid G1 y coordinate: {}", e))?;
+    let x = Fq::from_str(x_str).map_err(|e| anyhow!("Invalid G1 x coordinate: {:?}", e))?;
+    let y = Fq::from_str(y_str).map_err(|e| anyhow!("Invalid G1 y coordinate: {:?}", e))?;
     
-    G1Affine::new(x, y).ok_or_else(|| anyhow!("Invalid G1 point"))
+    Ok(G1Affine::new(x, y))
 }
 
 /// Parse G2 point from JSON
@@ -160,16 +165,16 @@ fn parse_g2_point(point_json: &Value) -> Result<G2Affine> {
     let y0_str = y0_str.strip_prefix("0x").unwrap_or(y0_str);
     let y1_str = y1_str.strip_prefix("0x").unwrap_or(y1_str);
     
-    let x0 = Fr::from_str(x0_str).map_err(|e| anyhow!("Invalid G2 x0 coordinate: {}", e))?;
-    let x1 = Fr::from_str(x1_str).map_err(|e| anyhow!("Invalid G2 x1 coordinate: {}", e))?;
-    let y0 = Fr::from_str(y0_str).map_err(|e| anyhow!("Invalid G2 y0 coordinate: {}", e))?;
-    let y1 = Fr::from_str(y1_str).map_err(|e| anyhow!("Invalid G2 y1 coordinate: {}", e))?;
+    let x0 = Fq::from_str(x0_str).map_err(|e| anyhow!("Invalid G2 x0 coordinate: {:?}", e))?;
+    let x1 = Fq::from_str(x1_str).map_err(|e| anyhow!("Invalid G2 x1 coordinate: {:?}", e))?;
+    let y0 = Fq::from_str(y0_str).map_err(|e| anyhow!("Invalid G2 y0 coordinate: {:?}", e))?;
+    let y1 = Fq::from_str(y1_str).map_err(|e| anyhow!("Invalid G2 y1 coordinate: {:?}", e))?;
     
     use ark_bn254::Fq2;
     let x = Fq2::new(x0, x1);
     let y = Fq2::new(y0, y1);
     
-    G2Affine::new(x, y).ok_or_else(|| anyhow!("Invalid G2 point"))
+    Ok(G2Affine::new(x, y))
 }
 
 /// Parse public inputs from public signals
@@ -207,6 +212,25 @@ fn parse_public_inputs(public_signals: &Value) -> Result<Vec<Fr>> {
     Ok(inputs)
 }
 
+/// Parse public inputs from PublicSignals struct
+fn parse_public_inputs_from_struct(public_signals: &super::PublicSignals) -> Result<Vec<Fr>> {
+    let mut inputs = Vec::new();
+    
+    // Extract numeric values from public signals struct
+    inputs.push(Fr::from(public_signals.compatibility_score));
+    inputs.push(Fr::from(public_signals.security_score));
+    inputs.push(Fr::from(public_signals.resource_score));
+    inputs.push(Fr::from(public_signals.best_practices_score));
+    inputs.push(Fr::from(public_signals.overall_score));
+    inputs.push(Fr::from(public_signals.timestamp));
+    
+    // Convert string fields to field elements using hash
+    inputs.push(string_to_field_element(&public_signals.rule_version));
+    inputs.push(string_to_field_element(&public_signals.network_target));
+    
+    Ok(inputs)
+}
+
 /// Convert string to field element using hash
 fn string_to_field_element(s: &str) -> Fr {
     use sha2::{Digest, Sha256};
@@ -219,46 +243,45 @@ fn string_to_field_element(s: &str) -> Fr {
 /// Validate proof package structure and contents
 fn validate_proof_package(proof_package: &ProofPackage) -> Result<()> {
     // Check that required fields are present
-    if proof_package.proof.is_null() {
-        return Err(anyhow!("Proof is missing or null"));
+    if proof_package.proof.is_empty() {
+        return Err(anyhow!("Proof is missing or empty"));
     }
     
-    if proof_package.verification_key.is_null() {
-        return Err(anyhow!("Verification key is missing or null"));
+    if proof_package.verification_key.is_empty() {
+        return Err(anyhow!("Verification key is missing or empty"));
     }
     
-    if proof_package.public_signals.is_null() {
-        return Err(anyhow!("Public signals are missing or null"));
+    if proof_package.public_signals.compatibility_score == 0 && proof_package.public_signals.security_score == 0 {
+        return Err(anyhow!("Public signals appear to be uninitialized"));
     }
     
     // Validate score ranges
-    if let Some(scores) = extract_scores(&proof_package.public_signals) {
-        for (name, score) in scores {
-            if score > 100 {
-                return Err(anyhow!("Score {} is out of range (0-100): {}", name, score));
-            }
+    let scores = extract_scores_from_struct(&proof_package.public_signals);
+    for (name, score) in scores {
+        if score > 100 {
+            return Err(anyhow!("Score {} is out of range (0-100): {}", name, score));
         }
     }
     
     // Validate timestamp
-    if let Some(timestamp) = proof_package.public_signals.get("timestamp").and_then(|v| v.as_u64()) {
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
-        // Check if timestamp is not too far in the past (1 year) or future (1 hour)
-        if timestamp < current_time.saturating_sub(365 * 24 * 3600) {
-            return Err(anyhow!("Proof timestamp is too old"));
-        }
-        if timestamp > current_time + 3600 {
-            return Err(anyhow!("Proof timestamp is in the future"));
-        }
+    let timestamp = proof_package.public_signals.timestamp;
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    // Check if timestamp is not too far in the past (1 year) or future (1 hour)
+    if timestamp < current_time.saturating_sub(365 * 24 * 3600) {
+        return Err(anyhow!("Proof timestamp is too old"));
+    }
+    if timestamp > current_time + 3600 {
+        return Err(anyhow!("Proof timestamp is in the future"));
     }
     
     Ok(())
 }
 
+/// Extract scores from public signals
 /// Extract scores from public signals
 fn extract_scores(public_signals: &Value) -> Option<Vec<(String, u64)>> {
     let mut scores = Vec::new();
@@ -286,19 +309,28 @@ fn extract_scores(public_signals: &Value) -> Option<Vec<(String, u64)>> {
     }
 }
 
+/// Extract scores from PublicSignals struct
+fn extract_scores_from_struct(public_signals: &super::PublicSignals) -> Vec<(String, u64)> {
+    vec![
+        ("compatibility_score".to_string(), public_signals.compatibility_score as u64),
+        ("security_score".to_string(), public_signals.security_score as u64),
+        ("resource_score".to_string(), public_signals.resource_score as u64),
+        ("best_practices_score".to_string(), public_signals.best_practices_score as u64),
+        ("overall_score".to_string(), public_signals.overall_score as u64),
+    ]
+}
 /// Extract metadata from proof package
 fn extract_proof_metadata(proof_package: &ProofPackage) -> HashMap<String, Value> {
     let mut metadata = HashMap::new();
     
-    if let Some(rule_version) = proof_package.public_signals.get("rule_version") {
-        metadata.insert("rule_version".to_string(), rule_version.clone());
-    }
-    if let Some(network_target) = proof_package.public_signals.get("network_target") {
-        metadata.insert("network_target".to_string(), network_target.clone());
-    }
-    if let Some(complexity) = proof_package.public_signals.get("complexity_level") {
-        metadata.insert("complexity_level".to_string(), complexity.clone());
-    }
+    metadata.insert("rule_version".to_string(), json!(proof_package.public_signals.rule_version));
+    metadata.insert("network_target".to_string(), json!(proof_package.public_signals.network_target));
+    metadata.insert("compatibility_score".to_string(), json!(proof_package.public_signals.compatibility_score));
+    metadata.insert("security_score".to_string(), json!(proof_package.public_signals.security_score));
+    metadata.insert("resource_score".to_string(), json!(proof_package.public_signals.resource_score));
+    metadata.insert("best_practices_score".to_string(), json!(proof_package.public_signals.best_practices_score));
+    metadata.insert("overall_score".to_string(), json!(proof_package.public_signals.overall_score));
+    metadata.insert("timestamp".to_string(), json!(proof_package.public_signals.timestamp));
     
     metadata
 }
@@ -362,7 +394,7 @@ contract {contract_name} {{
         verifyingKey.beta = Pairing.G2Point({beta_g2});
         verifyingKey.gamma = Pairing.G2Point({gamma_g2});
         verifyingKey.delta = Pairing.G2Point({delta_g2});
-        verifyingKey.gamma_abc = new Pairing.G1Point[]({});
+        verifyingKey.gamma_abc = new Pairing.G1Point[]({ic_length});
         {ic_assignment}
     }}
     
@@ -502,7 +534,7 @@ library Pairing {{
         beta_g2 = beta_g2,
         gamma_g2 = gamma_g2,
         delta_g2 = delta_g2,
-        ic_points.len(),
+        ic_length = vk.gamma_abc_g1.len(),
         ic_assignment = generate_ic_assignment(&vk.gamma_abc_g1)
     ))
 }
@@ -1036,7 +1068,8 @@ mod tests {
     use crate::zk::{CircuitType, ProofMetadata, ProofPackage, PublicSignals};
     use ark_std::test_rng;
     use ark_groth16::{Groth16, ProvingKey};
-    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError, LinearCombination};
+    use ark_relations::lc;
     
     // Simple test circuit
     struct TestCircuit {
@@ -1058,10 +1091,9 @@ mod tests {
             Ok(())
         }
     }
-    
     #[tokio::test]
     async fn test_real_proof_verification() {
-        let mut rng = test_rng();
+        let mut rng = ChaCha20Rng::from_entropy();
         
         // Setup
         let circuit = TestCircuit { a: None, b: None };

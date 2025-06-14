@@ -23,6 +23,9 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use ark_bn254::Bn254;
+use ark_groth16::VerifyingKey;
+use ark_serialize::CanonicalDeserialize;
 
 pub mod circuits;
 pub mod prover;
@@ -263,7 +266,8 @@ impl ZkProver {
 
     /// Verify a generated proof
     pub async fn verify_proof(&self, proof_package: &ProofPackage) -> Result<bool> {
-        verifier::verify_groth16_proof(proof_package).await
+        let result = verifier::verify_groth16_proof(proof_package).await?;
+        Ok(result.is_valid)
     }
 
     /// Save proof package to files
@@ -273,7 +277,6 @@ impl ZkProver {
         contract_name: &str,
     ) -> Result<Vec<String>> {
         use std::fs;
-        use std::path::Path;
 
         // Create output directory
         fs::create_dir_all(&self.config.output_dir)?;
@@ -301,15 +304,20 @@ impl ZkProver {
 
         // Generate Solidity verifier if requested
         if self.config.generate_solidity_verifier {
+            // Parse the verification key from string
+            let vk_bytes = hex::decode(&proof_package.verification_key)?;
+            let vk = VerifyingKey::<Bn254>::deserialize_compressed(&vk_bytes[..])?;
+            
+            let contract_name = format!("{}Verifier", base_name);
             let verifier_contract =
-                verifier::generate_solidity_verifier(&proof_package.verification_key)?;
+                verifier::generate_solidity_verifier(&vk, &contract_name)?;
             let verifier_file = format!("{}_verifier.sol", base_name);
             fs::write(&verifier_file, verifier_contract)?;
             created_files.push(verifier_file);
 
             // Also generate JavaScript verifier for web/Node.js integration
             let js_verifier =
-                verifier::generate_javascript_verifier(&proof_package.verification_key)?;
+                verifier::generate_javascript_verifier(&vk)?;
             let js_verifier_file = format!("{}_verifier.js", base_name);
             fs::write(&js_verifier_file, js_verifier)?;
             created_files.push(js_verifier_file);

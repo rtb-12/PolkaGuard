@@ -47,7 +47,12 @@ pub struct Cli {
     pub overwrite: bool,
 
     /// Target network for cost calculations (polkadot, kusama, westend, rococo, local)
-    #[arg(short, long, default_value = "polkadot", help = "Target network for cost calculations. Available: polkadot, kusama, westend, rococo, local")]
+    #[arg(
+        short,
+        long,
+        default_value = "polkadot",
+        help = "Target network for cost calculations. Available: polkadot, kusama, westend, rococo, local"
+    )]
     pub network: String,
 
     #[command(subcommand)]
@@ -64,6 +69,30 @@ pub enum Commands {
     },
     /// Analyze a Solidity contract for PolkaVM compatibility
     Analyze,
+    /// Generate zero-knowledge proof of analysis results
+    Prove {
+        /// Output directory for proof artifacts
+        #[arg(short, long, default_value = "./zk_proofs")]
+        output_dir: String,
+        /// Generate Solidity verifier contract
+        #[arg(long)]
+        generate_verifier: bool,
+        /// Circuit type to use (groth16, plonk)
+        #[arg(long, default_value = "groth16")]
+        circuit_type: String,
+        /// Security level in bits (128, 192, 256)
+        #[arg(long, default_value = "128")]
+        security_level: u32,
+    },
+    /// Verify a zero-knowledge proof
+    Verify {
+        /// Path to the proof file
+        #[arg(short, long)]
+        proof_path: String,
+        /// Path to verification key (optional, can be embedded in proof)
+        #[arg(long)]
+        verification_key: Option<String>,
+    },
     /// List all available analysis checks
     ListChecks,
     /// Show detailed information about a specific check
@@ -75,4 +104,28 @@ pub enum Commands {
     Disassemble,
     /// Analyze contract memory usage
     MemoryAnalysis,
+    /// Generate ZK proof of exploit knowledge from markdown report
+    ExploitReport {
+        /// Path to the markdown exploit report
+        #[arg(short, long)]
+        report_path: String,
+        /// Contract address the exploit targets
+        #[arg(short, long)]
+        contract_address: String,
+        /// Exploit signature/pattern to prove knowledge of
+        #[arg(short, long)]
+        exploit_signature: String,
+        /// Output directory for proof artifacts
+        #[arg(short, long, default_value = "./exploit_proofs")]
+        output_dir: String,
+        /// Generate Solidity verifier contract
+        #[arg(long)]
+        generate_verifier: bool,
+        /// Chunk size for Merkle tree leaves (in bytes)
+        #[arg(long, default_value = "32")]
+        chunk_size: usize,
+        /// Merkle tree height (log2 of max leaves)
+        #[arg(long, default_value = "20")]
+        tree_height: u32,
+    },
 }

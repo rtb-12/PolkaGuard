@@ -64,7 +64,10 @@ fn create_master_circuit_from_witness(witness: &Witness) -> Result<MasterCircuit
         return Err(anyhow!("Insufficient public inputs for master circuit"));
     }
 
-    let overall_score = witness.public_inputs[4]; // Overall score is the 5th public input
+    let overall_score_str = &witness.public_inputs[4]; // Overall score is the 5th public input
+    let overall_score = overall_score_str.parse::<u64>()
+        .map_err(|_| anyhow!("Invalid overall score format: {}", overall_score_str))
+        .map(Fr::from)?;
 
     // Create a dummy master circuit
     // In a real implementation, this would use the actual witness data
@@ -73,7 +76,7 @@ fn create_master_circuit_from_witness(witness: &Witness) -> Result<MasterCircuit
         resources::ResourceCircuit, security::SecurityCircuit,
     };
 
-    let master_circuit = MasterCircuit {
+    let master_circuit = MasterCircuit::<Fr> {
         compatibility: CompatibilityCircuit::new(None, None, None, None),
         security: SecurityCircuit::new(None, None, None, None, None),
         resources: ResourceCircuit::new(None, None, None, None),
@@ -259,12 +262,12 @@ mod tests {
     #[test]
     fn test_proof_estimation() {
         let mut private_inputs = HashMap::new();
-        private_inputs.insert("compatibility".to_string(), vec![Fr::from(1u64); 5]);
-        private_inputs.insert("security".to_string(), vec![Fr::from(1u64); 7]);
+        private_inputs.insert("compatibility".to_string(), vec!["1".to_string(); 5]);
+        private_inputs.insert("security".to_string(), vec!["1".to_string(); 7]);
 
         let witness = Witness {
             private_inputs,
-            public_inputs: vec![Fr::from(100u64); 6],
+            public_inputs: vec!["100".to_string(); 6],
             metadata: WitnessMetadata {
                 contract_hash: "test_hash".to_string(),
                 timestamp: 1000000000,
