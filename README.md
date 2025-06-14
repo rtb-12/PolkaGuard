@@ -259,6 +259,7 @@ chmod +x test_polkaguard.sh
 - **[Configuration Reference](docs/CONFIG.md)**: Complete configuration options and examples
 - **[Network Guide](docs/NETWORKS.md)**: Multi-network support and cost comparisons
 - **[Development Guide](docs/DEVELOPMENT.md)**: Architecture, contributing, and extending PolkaGuard
+- **[ZK Exploit Proofs](docs/ZK_EXPLOIT_PROOFS.md)**: Zero-knowledge vulnerability disclosure and anonymous reporting
 
 ### Key Resources
 
