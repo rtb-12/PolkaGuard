@@ -52,3 +52,7 @@ out/
 .cache/
 
 contracts/
+
+test_reports/
+
+exploit_proofs/
