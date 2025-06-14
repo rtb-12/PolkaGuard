@@ -1,6 +1,7 @@
 mod analyzer;
 mod cli;
 mod config;
+mod fork;
 mod linter;
 mod models;
 mod utils;
@@ -39,7 +40,34 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     
+    // Set up signal handlers for graceful cleanup
+    setup_signal_handlers().await?;
+    
     let cli = Cli::parse();
     crate::cli::handle_command(&cli).await?;
+    Ok(())
+}
+
+/// Setup signal handlers for graceful cleanup of fork processes
+async fn setup_signal_handlers() -> Result<()> {
+    use signal_hook::consts::SIGINT;
+    use signal_hook_tokio::Signals;
+    use futures_util::stream::StreamExt;
+    
+    let mut signals = Signals::new(&[SIGINT])?;
+    
+    tokio::spawn(async move {
+        while let Some(signal) = signals.next().await {
+            match signal {
+                SIGINT => {
+                    println!("\n🛑 Received interrupt signal, cleaning up...");
+                    // The cleanup will be handled by the ForkManager's Drop trait
+                    std::process::exit(0);
+                }
+                _ => unreachable!(),
+            }
+        }
+    });
+    
     Ok(())
 }

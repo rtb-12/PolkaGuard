@@ -1,6 +1,7 @@
 use crate::analyzer::Analyzer;
 use crate::cli::{Cli, Commands};
 use crate::config::{Config, CostBreakdown, NetworkConfig};
+use crate::fork::ForkManager;
 use crate::linter::{LintSeverity, Linter, LinterConfig};
 use crate::utils::format_bytes;
 use crate::zk::{CircuitType, ZkConfig, ZkProver};
@@ -1359,6 +1360,112 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                 println!("   • Keep original markdown report secure");
                 println!("   • This proves exploit EXISTS, not HOW to exploit");
                 println!("   • Stakeholders can verify without seeing report content");
+            }
+        }
+        Commands::RunFork {
+            auto_install,
+            port,
+            node_binary,
+            adapter_binary,
+            project_dir,
+            daemon,
+            stop,
+        } => {
+            let mut fork_manager = ForkManager::new(project_dir.clone(), *port)?;
+
+            if *stop {
+                // Stop existing fork daemon
+                fork_manager.stop_fork()?;
+                return Ok(());
+            }
+
+            // Check if already running
+            if fork_manager.is_fork_running()? {
+                let status = fork_manager.get_fork_status()?;
+                if cli.format == "json" {
+                    println!("{}", serde_json::to_string_pretty(&json!({
+                        "status": "already_running",
+                        "fork_info": status
+                    }))?);
+                } else {
+                    println!("✅ PolkaVM fork is already running");
+                    println!("🌐 RPC Endpoint: http://localhost:{}", port);
+                    println!("🛑 Stop with: polkaguard run-fork --stop");
+                }
+                return Ok(());
+            }
+
+            // Dependency checks
+            println!("🔍 Checking dependencies...");
+            
+            let nodejs_available = fork_manager.check_nodejs()?;
+            let npm_available = fork_manager.check_npm()?;
+            
+            if !nodejs_available || !npm_available {
+                if *auto_install {
+                    fork_manager.install_nodejs().await?;
+                    return Ok(());
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Node.js and npm are required. Use --auto-install to see installation instructions."
+                    ));
+                }
+            }
+
+            // Check binary dependencies
+            let substrate_node = fork_manager.check_substrate_node(node_binary.as_deref())?;
+            let eth_rpc_adapter = fork_manager.check_eth_rpc_adapter(adapter_binary.as_deref())?;
+
+            if substrate_node.is_none() {
+                println!("⚠️  Substrate node binary not found");
+                println!("📋 Please ensure you have:");
+                println!("   1. Built a Substrate node with pallet-revive");
+                println!("   2. Or specify path with --node-binary");
+                println!("   3. Or ensure 'substrate-node' is in your PATH");
+                if !*auto_install {
+                    return Err(anyhow::anyhow!("Substrate node binary not found"));
+                }
+            }
+
+            if eth_rpc_adapter.is_none() {
+                println!("⚠️  ETH-RPC adapter binary not found");
+                println!("📋 Please ensure you have:");
+                println!("   1. Built revive-eth-rpc adapter");
+                println!("   2. Or specify path with --adapter-binary");  
+                println!("   3. Or ensure 'revive-eth-rpc' is in your PATH");
+                if !*auto_install {
+                    return Err(anyhow::anyhow!("ETH-RPC adapter binary not found"));
+                }
+            }
+
+            // Setup project
+            println!("🔧 Setting up PolkaVM fork environment...");
+            fork_manager.setup_project().await?;
+            
+            // Generate configuration
+            fork_manager.generate_hardhat_config(
+                substrate_node.as_deref(),
+                eth_rpc_adapter.as_deref(),
+            )?;
+
+            if cli.format == "json" {
+                let status = fork_manager.get_fork_status()?;
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "status": "starting",
+                    "setup_complete": true,
+                    "fork_info": status
+                }))?);
+            }
+
+            // Start the fork
+            fork_manager.start_fork(*daemon).await?;
+
+            if cli.format == "json" && *daemon {
+                let status = fork_manager.get_fork_status()?;
+                println!("{}", serde_json::to_string_pretty(&json!({
+                    "status": "running",
+                    "fork_info": status
+                }))?);
             }
         }
     }

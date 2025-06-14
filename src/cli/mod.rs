@@ -3,6 +3,11 @@ use clap::{Parser, Subcommand};
 mod handler;
 pub use handler::handle_command;
 
+/// Generate ASCII banner for CLI
+fn get_ascii_banner() -> &'static str {
+    "🛡️ PolkaGuard - Smart Contract Security Guardian 🛡️"
+}
+
 /// Generate long about text with features and capabilities
 fn get_long_about() -> &'static str {
     r#"
@@ -178,5 +183,29 @@ pub enum Commands {
         /// 🌳 Merkle tree height (log2 of max leaves) - balance between proof size and capacity
         #[arg(long, default_value = "20")]
         tree_height: u32,
+    },
+    /// 🌐 Run local PolkaVM fork using Hardhat for contract testing and development
+    RunFork {
+        /// 🔧 Auto-install missing dependencies (node.js, hardhat-polkadot)
+        #[arg(long, default_value = "true")]
+        auto_install: bool,
+        /// 🌍 Port for the PolkaVM RPC endpoint
+        #[arg(long, default_value = "8545")]
+        port: u16,
+        /// 🔗 Path to Substrate node binary (will auto-detect if not provided)
+        #[arg(long)]
+        node_binary: Option<String>,
+        /// 🎯 Path to eth-rpc adapter binary (will auto-detect if not provided)
+        #[arg(long)]
+        adapter_binary: Option<String>,
+        /// 📁 Working directory for hardhat project (auto-generated if not provided)
+        #[arg(long)]
+        project_dir: Option<String>,
+        /// 🚀 Keep the fork running in background (daemon mode)
+        #[arg(long)]
+        daemon: bool,
+        /// 🛑 Stop an existing fork daemon
+        #[arg(long)]
+        stop: bool,
     },
 }

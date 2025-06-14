@@ -46,3 +46,6 @@ rand_chacha = "0.3"
 sysinfo = "0.30"
 which = "6.0"
 dirs = "5.0"
+signal-hook = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+futures-util = "0.3"
