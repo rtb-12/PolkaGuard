@@ -9,7 +9,6 @@ use sysinfo::{System, Pid};
 use tokio::time::sleep;
 use which::which;
 
-const POLKAVM_FORK_PORT: u16 = 8545;
 const PID_FILE: &str = ".polkaguard_fork.pid";
 const CONFIG_FILE: &str = "hardhat.config.js";
 
