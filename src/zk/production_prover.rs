@@ -22,6 +22,13 @@ pub async fn generate_production_proof(
     witness: &Witness,
     config: &ZkConfig,
 ) -> Result<(String, String)> {
+    // Estimate resources for production proof generation
+    let estimate = crate::zk::prover::estimate_proof_resources(witness);
+    println!("📊 Production proof estimates:");
+    println!("  Estimated time: {}ms", estimate.estimated_time_ms);
+    println!("  Estimated memory: {}MB", estimate.estimated_memory_mb);
+    println!("  Constraint count: {}", estimate.constraint_count);
+
     let start_time = Instant::now();
 
     println!("🔐 Generating PRODUCTION ZK proof...");
@@ -211,10 +218,10 @@ fn keys_are_consistent(_pk: &ProvingKey<Bn254>, _vk: &VerifyingKey<Bn254>) -> bo
 
 /// Create master circuit from witness data
 fn create_master_circuit_from_witness(witness: &Witness) -> Result<MasterCircuit<Fr>> {
-    use crate::zk::circuits::{
-        best_practices::BestPracticesCircuit, compatibility::CompatibilityCircuit,
-        resources::ResourceCircuit, security::SecurityCircuit,
-    };
+    // Validate witness integrity first
+    if !crate::zk::witness::validate_witness_integrity(witness)? {
+        return Err(anyhow!("Witness integrity validation failed"));
+    }
 
     // Validate witness has sufficient data
     if witness.public_inputs.len() < 5 {
@@ -224,90 +231,22 @@ fn create_master_circuit_from_witness(witness: &Witness) -> Result<MasterCircuit
         ));
     }
 
-    if witness.private_inputs.len() < 10 {
-        return Err(anyhow!(
-            "Insufficient private inputs: expected 10+, got {}",
-            witness.private_inputs.len()
-        ));
-    }
+    // Extract overall score from public inputs
+    let overall_score_str = &witness.public_inputs[4];
+    let overall_score = overall_score_str.parse::<u64>()
+        .map_err(|_| anyhow!("Invalid overall score format: {}", overall_score_str))
+        .map(Fr::from)?;
 
-    // Extract public inputs
-    let compatibility_score = witness.public_inputs[0];
-    let security_score = witness.public_inputs[1];
-    let resource_score = witness.public_inputs[2];
-    let best_practices_score = witness.public_inputs[3];
-    let overall_score = witness.public_inputs[4];
+    // Use metadata for validation
+    let expected_hash = &witness.metadata.analysis_hash;
+    println!("🔍 Production prover validation:");
+    println!("  Contract hash: {}", &witness.metadata.contract_hash[..8]);
+    println!("  Analysis hash: {}", &expected_hash[..8]);
+    println!("  Generated at: {}", witness.metadata.timestamp);
 
-    // Extract private inputs (witness details)
-    let mut private_idx = 0;
-
-    // Compatibility circuit witness
-    let polkadot_opcodes = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-    let gas_violations = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-    let evm_compatible = witness
-        .private_inputs
-        .get(private_idx)
-        .map(|&x| x != Fr::zero());
-    private_idx += 1;
-
-    // Security circuit witness
-    let vuln_count = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-    let has_reentrancy = witness
-        .private_inputs
-        .get(private_idx)
-        .map(|&x| x != Fr::zero());
-    private_idx += 1;
-    let overflow_count = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-    let access_control_issues = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-
-    // Resource circuit witness
-    let gas_usage = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-    let memory_usage = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-    let complexity = witness.private_inputs.get(private_idx).copied();
-    private_idx += 1;
-
-    // Create circuits with witness data
-    let compatibility_circuit = CompatibilityCircuit::new(
-        Some(compatibility_score),
-        polkadot_opcodes,
-        gas_violations,
-        evm_compatible,
-    );
-
-    let security_circuit = SecurityCircuit::new(
-        Some(security_score),
-        vuln_count,
-        has_reentrancy,
-        overflow_count,
-        access_control_issues,
-    );
-
-    let resource_circuit =
-        ResourceCircuit::new(Some(resource_score), gas_usage, memory_usage, complexity);
-
-    let best_practices_circuit = BestPracticesCircuit::new(
-        Some(best_practices_score),
-        witness.private_inputs.get(private_idx).copied(),
-        witness.private_inputs.get(private_idx + 1).copied(),
-        witness.private_inputs.get(private_idx + 2).copied(),
-        witness.private_inputs.get(private_idx + 3).copied(),
-        witness.private_inputs.get(private_idx + 4).copied(),
-    );
-
-    let master_circuit = MasterCircuit {
-        compatibility: compatibility_circuit,
-        security: security_circuit,
-        resources: resource_circuit,
-        best_practices: best_practices_circuit,
-        overall_score: Some(overall_score),
-    };
+    // Create master circuit from analysis results and set overall score
+    let master_circuit = MasterCircuit::from_analysis(&witness.analysis_results, &witness.contract_source)
+        .with_overall_score(overall_score);
 
     Ok(master_circuit)
 }
