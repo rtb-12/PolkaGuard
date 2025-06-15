@@ -1,6 +1,7 @@
 mod analyzer;
 mod cli;
 mod config;
+mod deployment;
 mod fork;
 mod linter;
 mod models;
