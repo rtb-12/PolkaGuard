@@ -40,32 +40,6 @@ fn print_error(message: &str) {
     println!("❌ 🔴 {} 🔴", message);
 }
 
-/// Validate and provide guidance on gas price values
-fn validate_gas_price_guidance(gas_price: Option<u64>, network: &crate::config::NetworkConfig) {
-    if let Some(price) = gas_price {
-        let token_equivalent = network.plancks_to_token(price);
-        
-        if token_equivalent > 0.001 {
-            print_warning(&format!(
-                "Gas price {} wei = {:.6} {} - This seems quite high for network transactions",
-                price, token_equivalent, network.token_symbol
-            ));
-        } else {
-            println!("   💡 Gas price {} wei = {:.8} {} - Reasonable for {} network", 
-                price, token_equivalent, network.token_symbol, network.name);
-        }
-        
-        // Show some common gas price examples using token_to_plancks
-        println!("   📋 Common gas price ranges:");
-        println!("      • Low:    {} wei ({:.8} {})", 
-            network.token_to_plancks(0.000001), 0.000001, network.token_symbol);
-        println!("      • Medium: {} wei ({:.8} {})", 
-            network.token_to_plancks(0.00001), 0.00001, network.token_symbol);
-        println!("      • High:   {} wei ({:.8} {})", 
-            network.token_to_plancks(0.0001), 0.0001, network.token_symbol);
-    }
-}
-
 pub async fn handle_command(cli: &Cli) -> Result<()> {
     // Display startup banner for non-JSON output
     if cli.format != "json" {
@@ -1096,7 +1070,7 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
             private_key,
             rpc_url,
             gas_limit: _,
-            gas_price,
+            gas_price: _,
             chain_id,
             target_testnet,
             chunk_size,
@@ -1113,13 +1087,6 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
 
             if contract_address.len() != 42 || !contract_address.starts_with("0x") {
                 return Err(anyhow::anyhow!("Invalid contract address format. Expected 0x followed by 40 hex characters"));
-            }
-
-            // If deployment is requested, validate gas price and provide guidance
-            if *deploy_verifier && gas_price.is_some() {
-                use crate::config::NetworkConfig;
-                let network = NetworkConfig::by_name(if *target_testnet { "westend" } else { "polkadot" });
-                validate_gas_price_guidance(*gas_price, &network);
             }
 
              // Read the markdown report
