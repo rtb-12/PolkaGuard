@@ -177,7 +177,28 @@ pub enum Commands {
         /// ⛓️  Generate Solidity verifier contract for on-chain verification
         #[arg(long)]
         generate_verifier: bool,
-        /// 📦 Chunk size for Merkle tree leaves (in bytes) - optimize for report size
+        /// � Deploy verifier contract on-chain after generation
+        #[arg(long)]
+        deploy_verifier: bool,
+        /// 🔐 Private key for deploying verifier contract (use with caution)
+        #[arg(long)]
+        private_key: Option<String>,
+        /// 🌐 RPC URL for blockchain connection
+        #[arg(long)]
+        rpc_url: Option<String>,
+        /// ⛽ Gas limit for verifier deployment transaction
+        #[arg(long)]
+        gas_limit: Option<u64>,
+        /// 💰 Gas price in wei for verifier deployment
+        #[arg(long)]
+        gas_price: Option<u64>,
+        /// 🆔 Chain ID for target blockchain network
+        #[arg(long)]
+        chain_id: Option<u64>,
+        /// 🧪 Deploy to testnet instead of mainnet (safety feature)
+        #[arg(long)]
+        target_testnet: bool,
+        /// �📦 Chunk size for Merkle tree leaves (in bytes) - optimize for report size
         #[arg(long, default_value = "32")]
         chunk_size: usize,
         /// 🌳 Merkle tree height (log2 of max leaves) - balance between proof size and capacity
