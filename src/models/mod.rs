@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AnalysisResults {
     pub contract_name: String,
     pub complexity: u32,
@@ -10,7 +10,7 @@ pub struct AnalysisResults {
     pub best_practices: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResourceUsage {
     pub ref_time: u64,        
     pub proof_size: u64,      
