@@ -57,6 +57,18 @@ Demo : [https://youtu.be/k75scr4ofBQ](https://youtu.be/k75scr4ofBQ)
 - **Solidity Compiler**: `npm install -g solc` or download from [releases](https://github.com/ethereum/solidity/releases)
 - **Resolc Compiler**: download from [releases](https://github.com/paritytech/revive/releases)
 
+### Install from Crates.io (Recommended)
+
+```bash
+# Install directly from crates.io
+cargo install polkaguard
+
+# Verify installation
+polkaguard --version
+```
+
+**📦 [Available on crates.io](https://crates.io/crates/polkaguard)**
+
 ### Build from Source
 
 ```bash
