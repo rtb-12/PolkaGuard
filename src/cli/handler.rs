@@ -4,7 +4,7 @@ use crate::config::{Config, CostBreakdown, NetworkConfig};
 use crate::fork::ForkManager;
 use crate::linter::{LintSeverity, Linter, LinterConfig};
 use crate::utils::format_bytes;
-use crate::zk::{CircuitType, ZkConfig, ZkProver};
+use crate::zk::{CircuitType, ZkConfig, ZkProver, ProofPackage, PublicSignals, ProofMetadata};
 use anyhow::Result;
 use serde_json::json;
 use std::fs;
@@ -38,6 +38,32 @@ fn print_warning(message: &str) {
 /// Display error message
 fn print_error(message: &str) {
     println!("❌ 🔴 {} 🔴", message);
+}
+
+/// Validate and provide guidance on gas price values
+fn validate_gas_price_guidance(gas_price: Option<u64>, network: &crate::config::NetworkConfig) {
+    if let Some(price) = gas_price {
+        let token_equivalent = network.plancks_to_token(price);
+        
+        if token_equivalent > 0.001 {
+            print_warning(&format!(
+                "Gas price {} wei = {:.6} {} - This seems quite high for network transactions",
+                price, token_equivalent, network.token_symbol
+            ));
+        } else {
+            println!("   💡 Gas price {} wei = {:.8} {} - Reasonable for {} network", 
+                price, token_equivalent, network.token_symbol, network.name);
+        }
+        
+        // Show some common gas price examples using token_to_plancks
+        println!("   📋 Common gas price ranges:");
+        println!("      • Low:    {} wei ({:.8} {})", 
+            network.token_to_plancks(0.000001), 0.000001, network.token_symbol);
+        println!("      • Medium: {} wei ({:.8} {})", 
+            network.token_to_plancks(0.00001), 0.00001, network.token_symbol);
+        println!("      • High:   {} wei ({:.8} {})", 
+            network.token_to_plancks(0.0001), 0.0001, network.token_symbol);
+    }
 }
 
 pub async fn handle_command(cli: &Cli) -> Result<()> {
@@ -221,23 +247,33 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
 
             // Create verifier with default config
             let zk_config = ZkConfig::default();
-            let prover = ZkProver::new(zk_config); // Prover can also verify
+            let _prover = ZkProver::new(zk_config);
 
-            // Verify the proof
-            let is_valid = prover.verify_proof(&proof_package).await?;
+            // Verify the proof using the prover's verification method
+            let is_valid = _prover.verify_proof(&proof_package).await?;
+
+            // Also get detailed verification results for enhanced reporting
+            use crate::zk::verifier::verify_with_validation;
+            let verification_result = verify_with_validation(&proof_package).await?;
 
             if cli.format == "json" {
                 let output = json!({
                     "verification_result": {
-                        "is_valid": is_valid,
+                        "is_valid": is_valid && verification_result.is_valid,
                         "proof_file": proof_path,
+                        "verification_time_ms": verification_result.verification_time_ms,
+                        "error_message": verification_result.error_message,
+                        "public_inputs": verification_result.public_inputs.iter().map(|x| format!("{:?}", x)).collect::<Vec<_>>(),
+                        "proof_metadata": verification_result.proof_metadata,
                         "public_signals": proof_package.public_signals,
-                        "metadata": proof_package.metadata
+                        "metadata": proof_package.metadata,
+                        "prover_validation": is_valid
                     }
                 });
                 println!("{}", serde_json::to_string_pretty(&output)?);
             } else {
-                if is_valid {
+                let final_valid = is_valid && verification_result.is_valid;
+                if final_valid {
                     println!("✅ Proof verification SUCCESSFUL");
                     println!("\n📊 Verified Analysis Results:");
                     println!(
@@ -291,7 +327,7 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                     if meets_standards {
                         println!("\n🏆 This contract meets recommended quality standards!");
                     } else {
-                        println!("\n⚠️  This contract does not meet recommended quality standards");
+                        print_warning("This contract does not meet recommended quality standards");
                         println!("     Recommended minimums: Overall ≥70, Security ≥80, Compatibility ≥75");
                     }
 
@@ -300,12 +336,16 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                     println!("   - Proof cryptographically guarantees all stated checks passed");
                     println!("   - This verification can be performed by anyone without access to source code");
                 } else {
-                    println!("❌ Proof verification FAILED");
+                    print_error("Proof verification FAILED");
+                    if let Some(error_msg) = &verification_result.error_message {
+                        println!("   📋 Error: {}", error_msg);
+                    }
                     println!("\n⚠️  Possible reasons:");
                     println!("   - Invalid proof data");
                     println!("   - Corrupted proof file");
                     println!("   - Proof generated with different parameters");
                     println!("   - Proof has expired or is too old");
+                    println!("   - Invalid verification key or proof structure");
                 }
             }
         }
@@ -563,6 +603,21 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                 if cost_breakdown.total_cost_usd > 0.0 {
                     println!("     (≈ ${:.2} USD)", cost_breakdown.total_cost_usd);
                 }
+
+                // Show token/plancks conversion examples using the utility method
+                println!("\n   🪙 Token/Plancks Conversion Reference:");
+                println!("     • 1 {} = {} plancks", 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.network.token_to_plancks(1.0)
+                );
+                println!("     • 0.1 {} = {} plancks", 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.network.token_to_plancks(0.1)
+                );
+                println!("     • 0.01 {} = {} plancks", 
+                    cost_breakdown.network.token_symbol,
+                    cost_breakdown.network.token_to_plancks(0.01)
+                );
 
                 // Add cost calculation methodology explanation
                 println!("\n   📊 Cost Calculation Methodology:");
@@ -1037,6 +1092,13 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
             exploit_signature,
             output_dir,
             generate_verifier,
+            deploy_verifier,
+            private_key,
+            rpc_url,
+            gas_limit: _,
+            gas_price,
+            chain_id,
+            target_testnet,
             chunk_size,
             tree_height,
         } => {
@@ -1051,6 +1113,13 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
 
             if contract_address.len() != 42 || !contract_address.starts_with("0x") {
                 return Err(anyhow::anyhow!("Invalid contract address format. Expected 0x followed by 40 hex characters"));
+            }
+
+            // If deployment is requested, validate gas price and provide guidance
+            if *deploy_verifier && gas_price.is_some() {
+                use crate::config::NetworkConfig;
+                let network = NetworkConfig::by_name(if *target_testnet { "westend" } else { "polkadot" });
+                validate_gas_price_guidance(*gas_price, &network);
             }
 
              // Read the markdown report
@@ -1250,29 +1319,174 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
             
             // Generate verifier contracts if requested
             if *generate_verifier {
-                println!("\n� Generating verifier contracts...");
+                println!("\n⚙️ Generating verifier contracts...");
                 
-                use crate::zk::verifier::{generate_solidity_verifier, generate_javascript_verifier};
+                // Create a prover instance and use its method
+                let zk_config = ZkConfig::default();
+                let prover = ZkProver::new(zk_config);
                 
-                // Generate Solidity verifier
+                // Create a ProofPackage from the proof components
+                let proof_package = ProofPackage {
+                    proof: serde_json::to_string(&real_proof)?,
+                    public_signals: PublicSignals {
+                        rule_version: "1.0.0".to_string(),
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_secs(),
+                        compatibility_score: 100,
+                        security_score: 100,
+                        resource_score: 100,
+                        best_practices_score: 100,
+                        overall_score: 100,
+                        complexity_level: "high".to_string(),
+                        network_target: "polkadot".to_string(),
+                    },
+                    verification_key: serde_json::to_string(&proof_metadata["verification_key"])?,
+                    metadata: ProofMetadata {
+                        generation_time_ms: 1000,
+                        circuit_type: CircuitType::Groth16,
+                        security_level: 256,
+                        prover_version: env!("CARGO_PKG_VERSION").to_string(),
+                        contract_hash: contract_address.to_string(),
+                    },
+                };
+                
+                let verifier_contracts = prover.generate_verifier_contracts(&proof_package)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to generate verifier contracts: {}", e))?;
+                
                 let verifier_contract_name = format!("ExploitProofVerifier_{}_{}", contract_name, sig_hash);
-                let solidity_verifier = generate_solidity_verifier(&verifying_key, &verifier_contract_name)
-                    .map_err(|e| anyhow::anyhow!("Failed to generate Solidity verifier: {}", e))?;
                 
-                let solidity_path = format!("{}/exploit_{}_{}_verifier.sol", output_dir, contract_name, sig_hash);
-                fs::write(&solidity_path, solidity_verifier)?;
-                created_files.push(solidity_path.clone());
+                // Save each contract type
+                let contract_base_name = format!("exploit_{}_{}", contract_name, sig_hash);
                 
-                // Generate JavaScript verifier
-                let javascript_verifier = generate_javascript_verifier(&verifying_key)
-                    .map_err(|e| anyhow::anyhow!("Failed to generate JavaScript verifier: {}", e))?;
+                if let Some(solidity) = verifier_contracts.get("solidity") {
+                    let solidity_path = format!("{}/{}_verifier.sol", output_dir, contract_base_name);
+                    fs::write(&solidity_path, solidity)?;
+                    created_files.push(solidity_path.clone());
+                    println!("   → Solidity verifier: {}", solidity_path);
+                }
                 
-                let javascript_path = format!("{}/exploit_{}_{}_verifier.js", output_dir, contract_name, sig_hash);
-                fs::write(&javascript_path, javascript_verifier)?;
-                created_files.push(javascript_path.clone());
+                if let Some(javascript) = verifier_contracts.get("javascript") {
+                    let javascript_path = format!("{}/{}_verifier.js", output_dir, contract_base_name);
+                    fs::write(&javascript_path, javascript)?;
+                    created_files.push(javascript_path.clone());
+                    println!("   → JavaScript verifier: {}", javascript_path);
+                }
                 
-                println!("   → Solidity verifier: {}", solidity_path);
-                println!("   → JavaScript verifier: {}", javascript_path);
+                if let Some(ink_contract) = verifier_contracts.get("ink") {
+                    let ink_path = format!("{}/{}_verifier.rs", output_dir, contract_base_name);
+                    fs::write(&ink_path, ink_contract)?;
+                    created_files.push(ink_path.clone());
+                    println!("   → ink! verifier: {}", ink_path);
+                }
+                
+                if let Some(vk_json) = verifier_contracts.get("verification_key") {
+                    let vk_path = format!("{}/{}_verification_key.json", output_dir, contract_base_name);
+                    fs::write(&vk_path, vk_json)?;
+                    created_files.push(vk_path.clone());
+                    println!("   → Verification key: {}", vk_path);
+                }
+                
+                // Deploy verifier contract if requested
+                if *deploy_verifier {
+                    println!("\n🚀 Preparing verifier contract deployment...");
+                    
+                    use crate::deployment::{collect_deployment_credentials, deploy_verifier_contract};
+                    
+                    let network_name = if *target_testnet {
+                        Some("sepolia".to_string()) // Default testnet
+                    } else {
+                        None // Let the function handle network selection
+                    };
+                    
+                    match collect_deployment_credentials(
+                        private_key.clone(),
+                        rpc_url.clone(),
+                        *chain_id,
+                        network_name,
+                    ).await {
+                        Ok(deployment_config) => {
+                            println!("✅ Deployment configuration ready");
+                            println!("   🌐 Network: {}", if *target_testnet { "testnet" } else { "mainnet" });
+                            println!("   🔗 RPC: {}", deployment_config.rpc_url);
+                            println!("   ⛓️ Chain ID: {}", deployment_config.chain_id);
+                            
+                            // Get the Solidity verifier for deployment
+                            if let Some(solidity_verifier) = verifier_contracts.get("solidity") {
+                                match deploy_verifier_contract(solidity_verifier, &verifier_contract_name, &deployment_config).await {
+                                Ok(deployment_result) => {
+                                    println!("\n🎉 Contract deployed successfully!");
+                                    println!("   📍 Address: {}", deployment_result.contract_address);
+                                    println!("   🧾 Tx Hash: {}", deployment_result.transaction_hash);
+                                    println!("   ⛽ Gas Used: {}", deployment_result.gas_used);
+                                    
+                                    // Calculate detailed cost breakdown using the utility function
+                                    use crate::deployment::calculate_deployment_cost;
+                                    let gas_price = if deployment_result.gas_used > 0 {
+                                        deployment_result.deployment_cost / deployment_result.gas_used
+                                    } else {
+                                        0
+                                    };
+                                    let cost_breakdown = calculate_deployment_cost(deployment_result.gas_used, gas_price);
+                                    
+                                    println!("   💰 Deployment Cost:");
+                                    println!("      • {} wei", cost_breakdown.get("wei").unwrap_or(&"0".to_string()));
+                                    println!("      • {} gwei", cost_breakdown.get("gwei").unwrap_or(&"0".to_string()));
+                                    println!("      • {} ETH", cost_breakdown.get("eth").unwrap_or(&"0".to_string()));
+                                    
+                                    // Generate explorer URLs using the utility function
+                                    use crate::deployment::get_explorer_url;
+                                    if let Some(tx_url) = get_explorer_url(deployment_result.chain_id, &deployment_result.transaction_hash, None) {
+                                        println!("   🔍 Transaction: {}", tx_url);
+                                    }
+                                    if let Some(contract_url) = get_explorer_url(deployment_result.chain_id, "", Some(&deployment_result.contract_address)) {
+                                        println!("   🔍 Contract: {}", contract_url);
+                                    }
+                                    
+                                    // Save deployment info
+                                    let explorer_tx_url = get_explorer_url(deployment_result.chain_id, &deployment_result.transaction_hash, None)
+                                        .unwrap_or_else(|| format!("https://etherscan.io/tx/{}", deployment_result.transaction_hash));
+                                    let explorer_contract_url = get_explorer_url(deployment_result.chain_id, "", Some(&deployment_result.contract_address))
+                                        .unwrap_or_else(|| format!("https://etherscan.io/address/{}", deployment_result.contract_address));
+                                    
+                                    let deployment_info = json!({
+                                        "contract_address": deployment_result.contract_address,
+                                        "transaction_hash": deployment_result.transaction_hash,
+                                        "gas_used": deployment_result.gas_used,
+                                        "deployment_cost": deployment_result.deployment_cost,
+                                        "cost_breakdown": cost_breakdown,
+                                        "network": if *target_testnet { "testnet" } else { "mainnet" },
+                                        "rpc_url": deployment_config.rpc_url,
+                                        "chain_id": deployment_config.chain_id,
+                                        "explorer_tx_url": explorer_tx_url,
+                                        "explorer_contract_url": explorer_contract_url
+                                    });
+                                    
+                                    let deployment_path = format!("{}/exploit_{}_{}_deployment.json", output_dir, contract_name, sig_hash);
+                                    fs::write(&deployment_path, serde_json::to_string_pretty(&deployment_info)?)?;
+                                    created_files.push(deployment_path);
+                                    
+                                    println!("   📄 Deployment info saved to: exploit_{}_{}_deployment.json", contract_name, sig_hash);
+                                }
+                                Err(e) => {
+                                    print_error(&format!("Deployment failed: {}", e));
+                                    println!("   💡 Verifier contract was still generated locally");
+                                    println!("   🔧 You can deploy manually using the generated .sol file");
+                                }
+                            }
+                            } else {
+                                print_error("No Solidity verifier available for deployment");
+                                println!("   💡 Generate verifier with --generate-verifier flag");
+                            }
+                        }
+                        Err(e) => {
+                            print_error(&format!("Failed to collect deployment credentials: {}", e));
+                            println!("   💡 Verifier contract was still generated locally");
+                            println!("   🔧 You can deploy manually using the generated .sol file");
+                        }
+                    }
+                }
             }
             
             println!("📁 Exploit proof files saved:");
@@ -1326,7 +1540,7 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                 println!("   • Exploit Pattern: \"{}...\" [First 20 chars]", 
                     &exploit_signature[..std::cmp::min(20, exploit_signature.len())]);
 
-                println!("\n� Generated Files:");
+                println!("\n✅ Generated Files:");
                 for (_i, file) in created_files.iter().enumerate() {
                     let file_type = if file.ends_with("_proof.json") {
                         "Proof"
@@ -1336,6 +1550,10 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
                         "Solidity Verifier"
                     } else if file.ends_with("_verifier.js") {
                         "JavaScript Verifier"
+                    } else if file.ends_with("_verifier.rs") {
+                        "ink! Verifier"
+                    } else if file.ends_with("_verification_key.json") {
+                        "Verification Key"
                     } else {
                         "File"
                     };
@@ -1417,7 +1635,7 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
             let eth_rpc_adapter = fork_manager.check_eth_rpc_adapter(adapter_binary.as_deref())?;
 
             if substrate_node.is_none() {
-                println!("⚠️  Substrate node binary not found");
+                print_warning("Substrate node binary not found");
                 println!("📋 Please ensure you have:");
                 println!("   1. Built a Substrate node with pallet-revive");
                 println!("   2. Or specify path with --node-binary");
@@ -1428,7 +1646,7 @@ pub async fn handle_command(cli: &Cli) -> Result<()> {
             }
 
             if eth_rpc_adapter.is_none() {
-                println!("⚠️  ETH-RPC adapter binary not found");
+                print_warning("ETH-RPC adapter binary not found");
                 println!("📋 Please ensure you have:");
                 println!("   1. Built revive-eth-rpc adapter");
                 println!("   2. Or specify path with --adapter-binary");  
