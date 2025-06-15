@@ -1,8 +1,8 @@
 [package]
 name = "polkaguard"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Ronit Chawla <rtbchawla12@gmail.com>"]
 description = "A CLI tool for analyzing Solidity smart contracts for PolkaVM compatibility"
 
 [dependencies]
@@ -49,3 +49,16 @@ dirs = "5.0"
 signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 futures-util = "0.3"
+
+# Ethereum deployment dependencies
+ethers = { version = "2.0", features = ["rustls", "ws"] }
+ethers-contract = "2.0"
+ethers-providers = "2.0"
+ethers-signers = "2.0"
+ethers-core = "2.0"
+ethers-solc = "2.0"
+rpassword = "7.3"
+
+[features]
+default = []
+production = []
