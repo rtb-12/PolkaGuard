@@ -22,6 +22,15 @@ pub async fn generate_groth16_proof(
     witness: &Witness,
     config: &ZkConfig,
 ) -> Result<(String, String)> {
+    // Estimate resources before proof generation
+    let estimate = estimate_proof_resources(witness);
+    println!("📊 Proof generation estimates:");
+    println!("  Estimated time: {}ms", estimate.estimated_time_ms);
+    println!("  Estimated memory: {}MB", estimate.estimated_memory_mb);
+    println!("  Constraint count: {}", estimate.constraint_count);
+    println!("  Public inputs: {}", estimate.public_input_count);
+    println!("  Private inputs: {}", estimate.private_input_count);
+
     let start_time = Instant::now();
 
     // Create a deterministic RNG for reproducible proofs (in production, use secure randomness)
@@ -56,10 +65,12 @@ pub async fn generate_groth16_proof(
 
 /// Create master circuit from witness data
 fn create_master_circuit_from_witness(witness: &Witness) -> Result<MasterCircuit<Fr>> {
-    // In a complete implementation, we would reconstruct the circuit from witness data
-    // For now, we'll create a dummy circuit that represents the structure
+    // Validate witness integrity first
+    if !crate::zk::witness::validate_witness_integrity(witness)? {
+        return Err(anyhow!("Witness integrity validation failed"));
+    }
 
-    // Extract public inputs
+    // Extract overall score from public inputs
     if witness.public_inputs.len() < 5 {
         return Err(anyhow!("Insufficient public inputs for master circuit"));
     }
@@ -69,20 +80,18 @@ fn create_master_circuit_from_witness(witness: &Witness) -> Result<MasterCircuit
         .map_err(|_| anyhow!("Invalid overall score format: {}", overall_score_str))
         .map(Fr::from)?;
 
-    // Create a dummy master circuit
-    // In a real implementation, this would use the actual witness data
-    use crate::zk::circuits::{
-        best_practices::BestPracticesCircuit, compatibility::CompatibilityCircuit,
-        resources::ResourceCircuit, security::SecurityCircuit,
-    };
+    // Create master circuit from analysis results and set overall score
+    let master_circuit = MasterCircuit::from_analysis(&witness.analysis_results, &witness.contract_source)
+        .with_overall_score(overall_score);
 
-    let master_circuit = MasterCircuit::<Fr> {
-        compatibility: CompatibilityCircuit::new(None, None, None, None),
-        security: SecurityCircuit::new(None, None, None, None, None),
-        resources: ResourceCircuit::new(None, None, None, None),
-        best_practices: BestPracticesCircuit::new(None, None, None, None, None, None),
-        overall_score: Some(overall_score),
-    };
+    // Log metadata for debugging
+    println!("📊 Witness metadata:");
+    println!("  Contract hash: {}", &witness.metadata.contract_hash[..8]);
+    println!("  Timestamp: {}", witness.metadata.timestamp);
+    println!("  Analysis hash: {}", &witness.metadata.analysis_hash[..8]);
+    for (circuit, size) in &witness.metadata.circuit_sizes {
+        println!("  {} circuit: {} private inputs", circuit, size);
+    }
 
     Ok(master_circuit)
 }
@@ -268,6 +277,8 @@ mod tests {
         let witness = Witness {
             private_inputs,
             public_inputs: vec!["100".to_string(); 6],
+            analysis_results: crate::models::AnalysisResults::default(),
+            contract_source: "contract Test {}".to_string(),
             metadata: WitnessMetadata {
                 contract_hash: "test_hash".to_string(),
                 timestamp: 1000000000,
