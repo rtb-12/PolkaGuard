@@ -44,40 +44,72 @@ print_separator
 # Test analysis
 print_header "🔍 ANALYSIS TESTS"
 
-print_test "Test 3: Basic contract analysis" "polkaguard --path ./contracts/MyContract.sol analyze"
+print_test "Test 3: Basic contract analysis (Good Contract)" "polkaguard --path ./contracts/MyContract.sol analyze"
 polkaguard --path ./contracts/MyContract.sol analyze
 print_separator
 
-print_test "Test 4: Selective checks (compatibility + security)" "polkaguard --path ./contracts/MyContract.sol --checks compatibility,security analyze"
+print_test "Test 3b: Basic contract analysis (Bad Contract)" "polkaguard --path ./contracts/BadContract.sol analyze"
+polkaguard --path ./contracts/BadContract.sol analyze
+print_separator
+
+print_test "Test 4: Selective checks (compatibility + security) - Good Contract" "polkaguard --path ./contracts/MyContract.sol --checks compatibility,security analyze"
 polkaguard --path ./contracts/MyContract.sol --checks compatibility,security analyze
 print_separator
 
-print_test "Test 5: Analysis with Polkadot network" "polkaguard --path ./contracts/MyContract.sol --network polkadot analyze"
+print_test "Test 4b: Selective checks (compatibility + security) - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --checks compatibility,security analyze"
+polkaguard --path ./contracts/BadContract.sol --checks compatibility,security analyze
+print_separator
+
+print_test "Test 5: Analysis with Polkadot network - Good Contract" "polkaguard --path ./contracts/MyContract.sol --network polkadot analyze"
 polkaguard --path ./contracts/MyContract.sol --network polkadot analyze
 print_separator
 
-print_test "Test 6: Analysis with Kusama network" "polkaguard --path ./contracts/MyContract.sol --network kusama analyze"
+print_test "Test 5b: Analysis with Polkadot network - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --network polkadot analyze"
+polkaguard --path ./contracts/BadContract.sol --network polkadot analyze
+print_separator
+
+print_test "Test 6: Analysis with Kusama network - Good Contract" "polkaguard --path ./contracts/MyContract.sol --network kusama analyze"
 polkaguard --path ./contracts/MyContract.sol --network kusama analyze
 print_separator
 
-print_test "Test 7: Analysis with Westend testnet" "polkaguard --path ./contracts/MyContract.sol --network westend analyze"
+print_test "Test 7: Analysis with Westend testnet - Good Contract" "polkaguard --path ./contracts/MyContract.sol --network westend analyze"
 polkaguard --path ./contracts/MyContract.sol --network westend analyze
 print_separator
 
-print_test "Test 8: Analysis with Local development network" "polkaguard --path ./contracts/MyContract.sol --network local analyze"
+print_test "Test 7b: Analysis with Westend testnet - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --network westend analyze"
+polkaguard --path ./contracts/BadContract.sol --network westend analyze
+print_separator
+
+print_test "Test 8: Analysis with Local development network - Good Contract" "polkaguard --path ./contracts/MyContract.sol --network local analyze"
 polkaguard --path ./contracts/MyContract.sol --network local analyze
 print_separator
 
-print_test "Test 9: JSON output format" "polkaguard --path ./contracts/MyContract.sol --format json analyze"
+print_test "Test 8b: Analysis with Local development network - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --network local analyze"
+polkaguard --path ./contracts/BadContract.sol --network local analyze
+print_separator
+
+print_test "Test 9: JSON output format - Good Contract" "polkaguard --path ./contracts/MyContract.sol --format json analyze"
 polkaguard --path ./contracts/MyContract.sol --format json analyze
 print_separator
 
-print_test "Test 10: JSON output with network cost breakdown" "polkaguard --path ./contracts/MyContract.sol --network polkadot --format json analyze"
+print_test "Test 9b: JSON output format - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --format json analyze"
+polkaguard --path ./contracts/BadContract.sol --format json analyze
+print_separator
+
+print_test "Test 10: JSON output with network cost breakdown - Good Contract" "polkaguard --path ./contracts/MyContract.sol --network polkadot --format json analyze"
 polkaguard --path ./contracts/MyContract.sol --network polkadot --format json analyze
 print_separator
 
-print_test "Test 11: Analysis with custom memory limits" "polkaguard --path ./contracts/MyContract.sol --stack-size 65536 --heap-size 131072 analyze"
+print_test "Test 10b: JSON output with network cost breakdown - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --network polkadot --format json analyze"
+polkaguard --path ./contracts/BadContract.sol --network polkadot --format json analyze
+print_separator
+
+print_test "Test 11: Analysis with custom memory limits - Good Contract" "polkaguard --path ./contracts/MyContract.sol --stack-size 65536 --heap-size 131072 analyze"
 polkaguard --path ./contracts/MyContract.sol --stack-size 65536 --heap-size 131072 analyze
+print_separator
+
+print_test "Test 11b: Analysis with custom memory limits - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --stack-size 65536 --heap-size 131072 analyze"
+polkaguard --path ./contracts/BadContract.sol --stack-size 65536 --heap-size 131072 analyze
 print_separator
 
 # Test list checks
@@ -109,19 +141,31 @@ print_separator
 # Test disassemble
 print_header "⚙️  DISASSEMBLY TESTS"
 
-print_test "Test 16: Contract disassembly (with overwrite)" "polkaguard --path ./contracts/MyContract.sol --overwrite disassemble"
+print_test "Test 16: Contract disassembly (with overwrite) - Good Contract" "polkaguard --path ./contracts/MyContract.sol --overwrite disassemble"
 polkaguard --path ./contracts/MyContract.sol --overwrite disassemble
+print_separator
+
+print_test "Test 16b: Contract disassembly (with overwrite) - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --overwrite disassemble"
+polkaguard --path ./contracts/BadContract.sol --overwrite disassemble
 print_separator
 
 # Test memory analysis
 print_header "🧠 MEMORY ANALYSIS TESTS"
 
-print_test "Test 17: Basic memory analysis" "polkaguard --path ./contracts/MyContract.sol memory-analysis"
+print_test "Test 17: Basic memory analysis - Good Contract" "polkaguard --path ./contracts/MyContract.sol memory-analysis"
 polkaguard --path ./contracts/MyContract.sol memory-analysis
 print_separator
 
-print_test "Test 18: Memory analysis with custom limits" "polkaguard --path ./contracts/MyContract.sol --stack-size 65536 --heap-size 131072 memory-analysis"
+print_test "Test 17b: Basic memory analysis - Bad Contract" "polkaguard --path ./contracts/BadContract.sol memory-analysis"
+polkaguard --path ./contracts/BadContract.sol memory-analysis
+print_separator
+
+print_test "Test 18: Memory analysis with custom limits - Good Contract" "polkaguard --path ./contracts/MyContract.sol --stack-size 65536 --heap-size 131072 memory-analysis"
 polkaguard --path ./contracts/MyContract.sol --stack-size 65536 --heap-size 131072 memory-analysis
+print_separator
+
+print_test "Test 18b: Memory analysis with custom limits - Bad Contract" "polkaguard --path ./contracts/BadContract.sol --stack-size 65536 --heap-size 131072 memory-analysis"
+polkaguard --path ./contracts/BadContract.sol --stack-size 65536 --heap-size 131072 memory-analysis
 print_separator
 
 # Test help and version
@@ -138,14 +182,24 @@ print_separator
 # Test network cost comparison
 print_header "💰 NETWORK COST COMPARISON"
 
-print_test "Test 21: Cost comparison across networks" "echo 'Comparing costs across different networks:'"
-echo 'Comparing costs across different networks:'
+print_test "Test 21: Cost comparison across networks - Good Contract" "echo 'Comparing costs across different networks:'"
+echo 'Comparing costs across different networks for Good Contract:'
 echo -e "${YELLOW}→ Polkadot mainnet:${NC}"
 polkaguard --path ./contracts/MyContract.sol --network polkadot analyze | grep -A 15 "Cost Implications"
 echo -e "${YELLOW}→ Kusama:${NC}"
 polkaguard --path ./contracts/MyContract.sol --network kusama analyze | grep -A 15 "Cost Implications"
 echo -e "${YELLOW}→ Westend testnet:${NC}"
 polkaguard --path ./contracts/MyContract.sol --network westend analyze | grep -A 15 "Cost Implications"
+print_separator
+
+print_test "Test 21b: Cost comparison across networks - Bad Contract" "echo 'Comparing costs across different networks:'"
+echo 'Comparing costs across different networks for Bad Contract:'
+echo -e "${YELLOW}→ Polkadot mainnet:${NC}"
+polkaguard --path ./contracts/BadContract.sol --network polkadot analyze | grep -A 15 "Cost Implications"
+echo -e "${YELLOW}→ Kusama:${NC}"
+polkaguard --path ./contracts/BadContract.sol --network kusama analyze | grep -A 15 "Cost Implications"
+echo -e "${YELLOW}→ Westend testnet:${NC}"
+polkaguard --path ./contracts/BadContract.sol --network westend analyze | grep -A 15 "Cost Implications"
 print_separator
 
 print_header "✅ Testing Complete!"
