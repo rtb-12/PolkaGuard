@@ -23,6 +23,8 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use ark_bn254::Bn254;
 use ark_groth16::VerifyingKey;
 use ark_serialize::CanonicalDeserialize;
@@ -267,6 +269,21 @@ impl ZkProver {
     /// Verify a generated proof
     pub async fn verify_proof(&self, proof_package: &ProofPackage) -> Result<bool> {
         let result = verifier::verify_groth16_proof(proof_package).await?;
+        
+        // Log verification details using all the fields
+        println!("🔍 Proof verification results:");
+        println!("  Valid: {}", result.is_valid);
+        println!("  Verification time: {}ms", result.verification_time_ms);
+        println!("  Public inputs count: {}", result.public_inputs.len());
+        
+        if let Some(error_msg) = &result.error_message {
+            println!("  Error: {}", error_msg);
+        }
+        
+        if !result.proof_metadata.is_empty() {
+            println!("  Metadata keys: {:?}", result.proof_metadata.keys().collect::<Vec<_>>());
+        }
+        
         Ok(result.is_valid)
     }
 
@@ -324,6 +341,16 @@ impl ZkProver {
         }
 
         Ok(created_files)
+    }
+
+    /// Generate verifier contracts for multiple platforms
+    pub async fn generate_verifier_contracts(&self, proof_package: &ProofPackage) -> Result<HashMap<String, String>> {
+        // Parse verification key from proof package
+        let vk_value: Value = serde_json::from_str(&proof_package.verification_key)?;
+        let vk = verifier::parse_verification_key(&vk_value)?;
+        
+        // Generate complete verifier package
+        verifier::generate_complete_verifier_package(&vk, "PolkaGuard")
     }
 }
 
