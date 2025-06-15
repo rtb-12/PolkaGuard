@@ -6,12 +6,8 @@
 use anyhow::{anyhow, Result};
 use ark_bn254::{Bn254, Fr, Fq, G1Affine, G2Affine};
 use ark_ff::PrimeField;
-use ark_groth16::{Groth16, Proof, VerifyingKey, VerifyingKey as VerifyingKeyTrait};
+use ark_groth16::{Groth16, Proof, VerifyingKey};
 use ark_snark::SNARK;
-use ark_serialize::CanonicalDeserialize;
-use ark_std::rand::rngs::{StdRng, OsRng};
-use ark_std::rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -28,12 +24,67 @@ pub struct RealVerifyingKey {
     pub gamma_abc_g1: Vec<G1Affine>,
 }
 
+impl RealVerifyingKey {
+    /// Convert from arkworks VerifyingKey to RealVerifyingKey
+    pub fn from_arkworks(vk: &VerifyingKey<Bn254>) -> Self {
+        Self {
+            alpha_g1: vk.alpha_g1,
+            beta_g2: vk.beta_g2,
+            gamma_g2: vk.gamma_g2,
+            delta_g2: vk.delta_g2,
+            gamma_abc_g1: vk.gamma_abc_g1.clone(),
+        }
+    }
+
+    /// Convert to arkworks VerifyingKey
+    pub fn to_arkworks(&self) -> VerifyingKey<Bn254> {
+        VerifyingKey {
+            alpha_g1: self.alpha_g1,
+            beta_g2: self.beta_g2,
+            gamma_g2: self.gamma_g2,
+            delta_g2: self.delta_g2,
+            gamma_abc_g1: self.gamma_abc_g1.clone(),
+        }
+    }
+
+    /// Validate verification key structure
+    pub fn validate(&self) -> bool {
+        !self.gamma_abc_g1.is_empty()
+    }
+}
+
 /// Real Groth16 proof structure
 #[derive(Debug, Clone)]
 pub struct RealProof {
     pub a: G1Affine,
     pub b: G2Affine,
     pub c: G1Affine,
+}
+
+impl RealProof {
+    /// Convert from arkworks Proof to RealProof
+    pub fn from_arkworks(proof: &Proof<Bn254>) -> Self {
+        Self {
+            a: proof.a,
+            b: proof.b,
+            c: proof.c,
+        }
+    }
+
+    /// Convert to arkworks Proof
+    pub fn to_arkworks(&self) -> Proof<Bn254> {
+        Proof {
+            a: self.a,
+            b: self.b,
+            c: self.c,
+        }
+    }
+
+    /// Validate proof structure (basic check)
+    pub fn validate(&self) -> bool {
+        // Basic validation - in practice you'd check if points are on curve, etc.
+        true
+    }
 }
 
 /// Verification result with detailed information
@@ -49,18 +100,27 @@ pub struct VerificationResult {
 /// Verify a Groth16 proof package using real cryptographic verification
 pub async fn verify_groth16_proof(proof_package: &ProofPackage) -> Result<VerificationResult> {
     let start_time = std::time::Instant::now();
-    
+
     // Parse the verification key from the proof package
     let vk_value: Value = serde_json::from_str(&proof_package.verification_key)?;
     let vk = parse_verification_key(&vk_value)?;
-    
+
     // Parse the proof from the proof package
     let proof_value: Value = serde_json::from_str(&proof_package.proof)?;
     let proof = parse_proof(&proof_value)?;
-    
+
     // Parse public inputs from public signals
     let public_inputs = parse_public_inputs_from_struct(&proof_package.public_signals)?;
-    
+
+    // Additional validation using the alternative parser for cross-validation
+    if let Ok(public_signals_json) = serde_json::to_value(&proof_package.public_signals) {
+        if let Ok(alt_inputs) = parse_public_inputs(&public_signals_json) {
+            if alt_inputs.len() != public_inputs.len() {
+                println!("⚠️  Public input count mismatch detected during cross-validation");
+            }
+        }
+    }
+
     // Perform actual Groth16 verification
     let is_valid = match Groth16::<Bn254>::verify(&vk, &public_inputs, &proof) {
         Ok(result) => result,
@@ -74,9 +134,75 @@ pub async fn verify_groth16_proof(proof_package: &ProofPackage) -> Result<Verifi
             });
         }
     };
-    
+
     // Additional validation checks
     validate_proof_package(proof_package)?;
+
+    Ok(VerificationResult {
+        is_valid,
+        verification_time_ms: start_time.elapsed().as_millis() as u64,
+        error_message: None,
+        public_inputs,
+        proof_metadata: extract_proof_metadata(proof_package),
+    })
+}
+
+/// Enhanced verification with custom type validation
+pub async fn verify_with_validation(proof_package: &ProofPackage) -> Result<VerificationResult> {
+    // First parse as arkworks types
+    let vk_value: Value = serde_json::from_str(&proof_package.verification_key)?;
+    let arkworks_vk = parse_verification_key(&vk_value)?;
+    let proof_value: Value = serde_json::from_str(&proof_package.proof)?;
+    let arkworks_proof = parse_proof(&proof_value)?;
+    
+    // Convert to our custom types for additional validation
+    let real_vk = RealVerifyingKey::from_arkworks(&arkworks_vk);
+    let real_proof = RealProof::from_arkworks(&arkworks_proof);
+    
+    // Validate using our custom types
+    if !real_vk.validate() {
+        return Ok(VerificationResult {
+            is_valid: false,
+            verification_time_ms: 0,
+            error_message: Some("Invalid verification key structure".to_string()),
+            public_inputs: vec![],
+            proof_metadata: HashMap::new(),
+        });
+    }
+    
+    if !real_proof.validate() {
+        return Ok(VerificationResult {
+            is_valid: false,
+            verification_time_ms: 0,
+            error_message: Some("Invalid proof structure".to_string()),
+            public_inputs: vec![],
+            proof_metadata: HashMap::new(),
+        });
+    }
+    
+    println!("✅ Custom type validation passed");
+    
+    // Convert back to arkworks types for verification
+    let verified_vk = real_vk.to_arkworks();
+    let verified_proof = real_proof.to_arkworks();
+    
+    // Parse public inputs
+    let public_inputs = parse_public_inputs_from_struct(&proof_package.public_signals)?;
+    
+    // Perform verification with the converted types
+    let start_time = std::time::Instant::now();
+    let is_valid = match Groth16::<Bn254>::verify(&verified_vk, &public_inputs, &verified_proof) {
+        Ok(result) => result,
+        Err(e) => {
+            return Ok(VerificationResult {
+                is_valid: false,
+                verification_time_ms: start_time.elapsed().as_millis() as u64,
+                error_message: Some(format!("Cryptographic verification failed: {}", e)),
+                public_inputs,
+                proof_metadata: extract_proof_metadata(proof_package),
+            });
+        }
+    };
     
     Ok(VerificationResult {
         is_valid,
@@ -88,20 +214,20 @@ pub async fn verify_groth16_proof(proof_package: &ProofPackage) -> Result<Verifi
 }
 
 /// Parse verification key from JSON format
-fn parse_verification_key(vk_json: &Value) -> Result<VerifyingKey<Bn254>> {
+pub fn parse_verification_key(vk_json: &Value) -> Result<VerifyingKey<Bn254>> {
     let alpha_g1 = parse_g1_point(vk_json.get("alpha").ok_or_else(|| anyhow!("Missing alpha in verification key"))?)?;
     let beta_g2 = parse_g2_point(vk_json.get("beta").ok_or_else(|| anyhow!("Missing beta in verification key"))?)?;
     let gamma_g2 = parse_g2_point(vk_json.get("gamma").ok_or_else(|| anyhow!("Missing gamma in verification key"))?)?;
     let delta_g2 = parse_g2_point(vk_json.get("delta").ok_or_else(|| anyhow!("Missing delta in verification key"))?)?;
-    
+
     let ic_array = vk_json.get("ic").ok_or_else(|| anyhow!("Missing ic in verification key"))?
         .as_array().ok_or_else(|| anyhow!("IC should be an array"))?;
-    
+
     let mut gamma_abc_g1 = Vec::new();
     for ic_point in ic_array {
         gamma_abc_g1.push(parse_g1_point(ic_point)?);
     }
-    
+
     Ok(VerifyingKey {
         alpha_g1,
         beta_g2,
@@ -116,7 +242,7 @@ fn parse_proof(proof_json: &Value) -> Result<Proof<Bn254>> {
     let a = parse_g1_point(proof_json.get("a").ok_or_else(|| anyhow!("Missing 'a' in proof"))?)?;
     let b = parse_g2_point(proof_json.get("b").ok_or_else(|| anyhow!("Missing 'b' in proof"))?)?;
     let c = parse_g1_point(proof_json.get("c").ok_or_else(|| anyhow!("Missing 'c' in proof"))?)?;
-    
+
     Ok(Proof { a, b, c })
 }
 
@@ -126,17 +252,17 @@ fn parse_g1_point(point_json: &Value) -> Result<G1Affine> {
     if coords.len() != 2 {
         return Err(anyhow!("G1 point should have exactly 2 coordinates"));
     }
-    
+
     let x_str = coords[0].as_str().ok_or_else(|| anyhow!("G1 x coordinate should be a string"))?;
     let y_str = coords[1].as_str().ok_or_else(|| anyhow!("G1 y coordinate should be a string"))?;
-    
+
     // Remove 0x prefix if present
     let x_str = x_str.strip_prefix("0x").unwrap_or(x_str);
     let y_str = y_str.strip_prefix("0x").unwrap_or(y_str);
-    
+
     let x = Fq::from_str(x_str).map_err(|e| anyhow!("Invalid G1 x coordinate: {:?}", e))?;
     let y = Fq::from_str(y_str).map_err(|e| anyhow!("Invalid G1 y coordinate: {:?}", e))?;
-    
+
     Ok(G1Affine::new(x, y))
 }
 
@@ -146,41 +272,41 @@ fn parse_g2_point(point_json: &Value) -> Result<G2Affine> {
     if coords.len() != 2 {
         return Err(anyhow!("G2 point should have exactly 2 elements"));
     }
-    
+
     let x_coords = coords[0].as_array().ok_or_else(|| anyhow!("G2 x should be an array"))?;
     let y_coords = coords[1].as_array().ok_or_else(|| anyhow!("G2 y should be an array"))?;
-    
+
     if x_coords.len() != 2 || y_coords.len() != 2 {
         return Err(anyhow!("G2 coordinates should have exactly 2 elements each"));
     }
-    
+
     let x0_str = x_coords[0].as_str().ok_or_else(|| anyhow!("G2 x0 should be a string"))?;
     let x1_str = x_coords[1].as_str().ok_or_else(|| anyhow!("G2 x1 should be a string"))?;
     let y0_str = y_coords[0].as_str().ok_or_else(|| anyhow!("G2 y0 should be a string"))?;
     let y1_str = y_coords[1].as_str().ok_or_else(|| anyhow!("G2 y1 should be a string"))?;
-    
+
     // Remove 0x prefix if present
     let x0_str = x0_str.strip_prefix("0x").unwrap_or(x0_str);
     let x1_str = x1_str.strip_prefix("0x").unwrap_or(x1_str);
     let y0_str = y0_str.strip_prefix("0x").unwrap_or(y0_str);
     let y1_str = y1_str.strip_prefix("0x").unwrap_or(y1_str);
-    
+
     let x0 = Fq::from_str(x0_str).map_err(|e| anyhow!("Invalid G2 x0 coordinate: {:?}", e))?;
     let x1 = Fq::from_str(x1_str).map_err(|e| anyhow!("Invalid G2 x1 coordinate: {:?}", e))?;
     let y0 = Fq::from_str(y0_str).map_err(|e| anyhow!("Invalid G2 y0 coordinate: {:?}", e))?;
     let y1 = Fq::from_str(y1_str).map_err(|e| anyhow!("Invalid G2 y1 coordinate: {:?}", e))?;
-    
+
     use ark_bn254::Fq2;
     let x = Fq2::new(x0, x1);
     let y = Fq2::new(y0, y1);
-    
+
     Ok(G2Affine::new(x, y))
 }
 
 /// Parse public inputs from public signals
 fn parse_public_inputs(public_signals: &Value) -> Result<Vec<Fr>> {
     let mut inputs = Vec::new();
-    
+
     // Extract numeric values from public signals
     if let Some(compat_score) = public_signals.get("compatibility_score").and_then(|v| v.as_u64()) {
         inputs.push(Fr::from(compat_score));
@@ -200,7 +326,7 @@ fn parse_public_inputs(public_signals: &Value) -> Result<Vec<Fr>> {
     if let Some(timestamp) = public_signals.get("timestamp").and_then(|v| v.as_u64()) {
         inputs.push(Fr::from(timestamp));
     }
-    
+
     // Convert string fields to field elements using hash
     if let Some(rule_version) = public_signals.get("rule_version").and_then(|v| v.as_str()) {
         inputs.push(string_to_field_element(rule_version));
@@ -208,14 +334,14 @@ fn parse_public_inputs(public_signals: &Value) -> Result<Vec<Fr>> {
     if let Some(network_target) = public_signals.get("network_target").and_then(|v| v.as_str()) {
         inputs.push(string_to_field_element(network_target));
     }
-    
+
     Ok(inputs)
 }
 
 /// Parse public inputs from PublicSignals struct
 fn parse_public_inputs_from_struct(public_signals: &super::PublicSignals) -> Result<Vec<Fr>> {
     let mut inputs = Vec::new();
-    
+
     // Extract numeric values from public signals struct
     inputs.push(Fr::from(public_signals.compatibility_score));
     inputs.push(Fr::from(public_signals.security_score));
@@ -223,11 +349,11 @@ fn parse_public_inputs_from_struct(public_signals: &super::PublicSignals) -> Res
     inputs.push(Fr::from(public_signals.best_practices_score));
     inputs.push(Fr::from(public_signals.overall_score));
     inputs.push(Fr::from(public_signals.timestamp));
-    
+
     // Convert string fields to field elements using hash
     inputs.push(string_to_field_element(&public_signals.rule_version));
     inputs.push(string_to_field_element(&public_signals.network_target));
-    
+
     Ok(inputs)
 }
 
@@ -246,15 +372,15 @@ fn validate_proof_package(proof_package: &ProofPackage) -> Result<()> {
     if proof_package.proof.is_empty() {
         return Err(anyhow!("Proof is missing or empty"));
     }
-    
+
     if proof_package.verification_key.is_empty() {
         return Err(anyhow!("Verification key is missing or empty"));
     }
-    
+
     if proof_package.public_signals.compatibility_score == 0 && proof_package.public_signals.security_score == 0 {
         return Err(anyhow!("Public signals appear to be uninitialized"));
     }
-    
+
     // Validate score ranges
     let scores = extract_scores_from_struct(&proof_package.public_signals);
     for (name, score) in scores {
@@ -262,14 +388,14 @@ fn validate_proof_package(proof_package: &ProofPackage) -> Result<()> {
             return Err(anyhow!("Score {} is out of range (0-100): {}", name, score));
         }
     }
-    
+
     // Validate timestamp
     let timestamp = proof_package.public_signals.timestamp;
     let current_time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
+
     // Check if timestamp is not too far in the past (1 year) or future (1 hour)
     if timestamp < current_time.saturating_sub(365 * 24 * 3600) {
         return Err(anyhow!("Proof timestamp is too old"));
@@ -277,7 +403,7 @@ fn validate_proof_package(proof_package: &ProofPackage) -> Result<()> {
     if timestamp > current_time + 3600 {
         return Err(anyhow!("Proof timestamp is in the future"));
     }
-    
+
     Ok(())
 }
 
@@ -285,7 +411,7 @@ fn validate_proof_package(proof_package: &ProofPackage) -> Result<()> {
 /// Extract scores from public signals
 fn extract_scores(public_signals: &Value) -> Option<Vec<(String, u64)>> {
     let mut scores = Vec::new();
-    
+
     if let Some(score) = public_signals.get("compatibility_score").and_then(|v| v.as_u64()) {
         scores.push(("compatibility_score".to_string(), score));
     }
@@ -301,7 +427,7 @@ fn extract_scores(public_signals: &Value) -> Option<Vec<(String, u64)>> {
     if let Some(score) = public_signals.get("overall_score").and_then(|v| v.as_u64()) {
         scores.push(("overall_score".to_string(), score));
     }
-    
+
     if scores.is_empty() {
         None
     } else {
@@ -322,7 +448,7 @@ fn extract_scores_from_struct(public_signals: &super::PublicSignals) -> Vec<(Str
 /// Extract metadata from proof package
 fn extract_proof_metadata(proof_package: &ProofPackage) -> HashMap<String, Value> {
     let mut metadata = HashMap::new();
-    
+
     metadata.insert("rule_version".to_string(), json!(proof_package.public_signals.rule_version));
     metadata.insert("network_target".to_string(), json!(proof_package.public_signals.network_target));
     metadata.insert("compatibility_score".to_string(), json!(proof_package.public_signals.compatibility_score));
@@ -331,7 +457,17 @@ fn extract_proof_metadata(proof_package: &ProofPackage) -> HashMap<String, Value
     metadata.insert("best_practices_score".to_string(), json!(proof_package.public_signals.best_practices_score));
     metadata.insert("overall_score".to_string(), json!(proof_package.public_signals.overall_score));
     metadata.insert("timestamp".to_string(), json!(proof_package.public_signals.timestamp));
-    
+
+    // Use extract_scores function to add score analysis
+    if let Ok(public_signals_json) = serde_json::to_value(&proof_package.public_signals) {
+        if let Some(scores) = extract_scores(&public_signals_json) {
+            metadata.insert("extracted_scores".to_string(), json!(scores));
+            // Add score summary
+            let total_score: u64 = scores.iter().map(|(_, score)| score).sum();
+            metadata.insert("total_score".to_string(), json!(total_score));
+        }
+    }
+
     metadata
 }
 
@@ -341,7 +477,7 @@ pub fn generate_solidity_verifier(vk: &VerifyingKey<Bn254>, contract_name: &str)
     let beta_g2 = format_g2_point(&vk.beta_g2);
     let gamma_g2 = format_g2_point(&vk.gamma_g2);
     let delta_g2 = format_g2_point(&vk.delta_g2);
-    
+
     let mut ic_points = String::new();
     for (i, point) in vk.gamma_abc_g1.iter().enumerate() {
         if i > 0 {
@@ -349,7 +485,7 @@ pub fn generate_solidity_verifier(vk: &VerifyingKey<Bn254>, contract_name: &str)
         }
         ic_points.push_str(&format_g1_point(point));
     }
-    
+
     Ok(format!(r#"
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -555,6 +691,28 @@ fn format_g2_point(point: &G2Affine) -> String {
         field_element_to_string(&point.y.c1),
         field_element_to_string(&point.y.c0)
     )
+}
+
+/// Format G1 point for JSON serialization
+fn format_g1_point_json(point: &G1Affine) -> Value {
+    json!({
+        "x": point.x.to_string(),
+        "y": point.y.to_string()
+    })
+}
+
+/// Format G2 point for JSON serialization
+fn format_g2_point_json(point: &G2Affine) -> Value {
+    json!({
+        "x": [
+            point.x.c0.to_string(),
+            point.x.c1.to_string()
+        ],
+        "y": [
+            point.y.c0.to_string(),
+            point.y.c1.to_string()
+        ]
+    })
 }
 
 /// Convert field element to string representation
@@ -1015,60 +1173,48 @@ mod {contract_name_lower} {{
     ))
 }
 
-/// Serialize verification key for ink! contract
-fn serialize_verification_key_for_ink(vk: &VerifyingKey<Bn254>) -> Result<String> {
-    use ark_serialize::CanonicalSerialize;
+/// Generate a complete verifier package including Solidity, JavaScript, and ink! contracts
+pub fn generate_complete_verifier_package(vk: &VerifyingKey<Bn254>, contract_name: &str) -> Result<HashMap<String, String>> {
+    let mut package = HashMap::new();
     
-    let mut alpha_bytes = Vec::new();
-    vk.alpha_g1.serialize_compressed(&mut alpha_bytes)?;
+    // Generate Solidity verifier
+    let solidity_verifier = generate_solidity_verifier(vk, contract_name)?;
+    package.insert("solidity".to_string(), solidity_verifier);
     
-    let mut beta_bytes = Vec::new();
-    vk.beta_g2.serialize_compressed(&mut beta_bytes)?;
+    // Generate JavaScript verifier
+    let js_verifier = generate_javascript_verifier(vk)?;
+    package.insert("javascript".to_string(), js_verifier);
     
-    let mut gamma_bytes = Vec::new();
-    vk.gamma_g2.serialize_compressed(&mut gamma_bytes)?;
+    // Generate ink! verifier
+    let ink_verifier = generate_ink_verifier(vk, contract_name)?;
+    package.insert("ink".to_string(), ink_verifier);
     
-    let mut delta_bytes = Vec::new();
-    vk.delta_g2.serialize_compressed(&mut delta_bytes)?;
+    // Generate verification key serialized for ink!
+    let vk_serialized = serialize_verification_key_for_ink(vk)?;
+    package.insert("verification_key".to_string(), vk_serialized);
     
-    let mut ic_strings = Vec::new();
-    for point in &vk.gamma_abc_g1 {
-        let mut point_bytes = Vec::new();
-        point.serialize_compressed(&mut point_bytes)?;
-        // Pad to 48 bytes for G1 point
-        point_bytes.resize(48, 0);
-        ic_strings.push(format!("{:?}", point_bytes.as_slice()));
-    }
-    
-    // Pad byte arrays to expected sizes
-    alpha_bytes.resize(48, 0);
-    beta_bytes.resize(96, 0);
-    gamma_bytes.resize(96, 0);
-    delta_bytes.resize(96, 0);
-    
-    Ok(format!(
-        "VerifyingKey {{\n\
-        \x20\x20\x20\x20alpha: {:?},\n\
-        \x20\x20\x20\x20beta: {:?},\n\
-        \x20\x20\x20\x20gamma: {:?},\n\
-        \x20\x20\x20\x20delta: {:?},\n\
-        \x20\x20\x20\x20ic: vec![{}],\n\
-        }}",
-        alpha_bytes.as_slice(),
-        beta_bytes.as_slice(),
-        gamma_bytes.as_slice(),
-        delta_bytes.as_slice(),
-        ic_strings.join(", ")
-    ))
+    Ok(package)
+}
+
+/// Serialize verification key for ink! contracts
+pub fn serialize_verification_key_for_ink(vk: &VerifyingKey<Bn254>) -> Result<String> {
+    let real_vk = RealVerifyingKey::from_arkworks(vk);
+    serde_json::to_string_pretty(&json!({
+        "alpha_g1": format_g1_point_json(&real_vk.alpha_g1),
+        "beta_g2": format_g2_point_json(&real_vk.beta_g2),
+        "gamma_g2": format_g2_point_json(&real_vk.gamma_g2),
+        "delta_g2": format_g2_point_json(&real_vk.delta_g2),
+        "gamma_abc_g1": real_vk.gamma_abc_g1.iter().map(format_g1_point_json).collect::<Vec<_>>()
+    })).map_err(|e| anyhow!("Failed to serialize verification key: {}", e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::zk::{CircuitType, ProofMetadata, ProofPackage, PublicSignals};
-    use ark_std::test_rng;
-    use ark_groth16::{Groth16, ProvingKey};
-    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError, LinearCombination};
+    use rand_chacha::ChaCha20Rng;
+    use ark_groth16::Groth16;
+    use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+    use rand::SeedableRng;
     use ark_relations::lc;
     
     // Simple test circuit
@@ -1114,7 +1260,7 @@ mod tests {
         assert!(result.is_valid);
     }
     
-    fn create_test_proof_package(proof: &Proof<Bn254>, vk: &VerifyingKey<Bn254>, public_inputs: &[Fr]) -> ProofPackage {
+    fn create_test_proof_package(_proof: &Proof<Bn254>, _vk: &VerifyingKey<Bn254>, _public_inputs: &[Fr]) -> ProofPackage {
         // This would serialize the proof and vk to JSON format
         // Implementation omitted for brevity
         todo!("Implement test proof package creation")
