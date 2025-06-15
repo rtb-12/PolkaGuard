@@ -8,9 +8,8 @@ use ark_ff::{Field, One, PrimeField, Zero};
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use ark_std::vec::Vec;
 
-use super::{bool_to_field, validate_score_range, PolkaGuardCircuit, ZkCircuit};
+use super::{bool_to_field, validate_score_range};
 use crate::models::AnalysisResults;
 
 /// Circuit for best practices validation
@@ -48,6 +47,46 @@ impl<F: Field + PrimeField> BestPracticesCircuit<F> {
             has_natspec,
             score,
         }
+    }
+
+    /// Generate circuit from analysis results
+    pub fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self {
+        let violation_count = F::from(results.best_practices.len() as u64);
+
+        // Check for specific best practices
+        let has_pragma = contract_source.contains("pragma solidity");
+        let has_license = contract_source.contains("SPDX-License-Identifier");
+        let has_visibility = contract_source.contains("public")
+            || contract_source.contains("private")
+            || contract_source.contains("internal")
+            || contract_source.contains("external");
+        let has_natspec = contract_source.contains("///") || contract_source.contains("/**");
+
+        // Calculate score
+        let mut score = 100;
+        score -= results.best_practices.len() as i32 * 5; // Base penalty
+        if !has_pragma {
+            score -= 15;
+        }
+        if !has_license {
+            score -= 10;
+        }
+        if !has_visibility {
+            score -= 10;
+        }
+        if !has_natspec {
+            score -= 5;
+        }
+        score = std::cmp::max(0, score);
+
+        Self::new(
+            Some(violation_count),
+            Some(bool_to_field(has_pragma)),
+            Some(bool_to_field(has_license)),
+            Some(bool_to_field(has_visibility)),
+            Some(bool_to_field(has_natspec)),
+            Some(F::from(score as u64)),
+        )
     }
 
     /// Calculate best practices score
@@ -94,65 +133,6 @@ impl<F: Field + PrimeField> BestPracticesCircuit<F> {
         let final_score = FpVar::conditionally_select(&is_negative, &zero, &score)?;
 
         Ok(final_score)
-    }
-}
-
-impl<F: Field + PrimeField> ZkCircuit<F> for BestPracticesCircuit<F> {
-    fn generate_constraints(&self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        self.clone().generate_constraints(cs)
-    }
-}
-
-impl<F: Field + PrimeField> PolkaGuardCircuit<F> for BestPracticesCircuit<F> {
-    fn circuit_id(&self) -> &'static str {
-        "best_practices"
-    }
-
-    fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self {
-        let violation_count = F::from(results.best_practices.len() as u64);
-
-        // Check for specific best practices
-        let has_pragma = contract_source.contains("pragma solidity");
-        let has_license = contract_source.contains("SPDX-License-Identifier");
-        let has_visibility = contract_source.contains("public")
-            || contract_source.contains("private")
-            || contract_source.contains("internal")
-            || contract_source.contains("external");
-        let has_natspec = contract_source.contains("///") || contract_source.contains("/**");
-
-        // Calculate score
-        let mut score = 100;
-        score -= results.best_practices.len() as i32 * 5; // Base penalty
-        if !has_pragma {
-            score -= 15;
-        }
-        if !has_license {
-            score -= 10;
-        }
-        if !has_visibility {
-            score -= 10;
-        }
-        if !has_natspec {
-            score -= 5;
-        }
-        score = std::cmp::max(0, score);
-
-        Self::new(
-            Some(violation_count),
-            Some(bool_to_field(has_pragma)),
-            Some(bool_to_field(has_license)),
-            Some(bool_to_field(has_visibility)),
-            Some(bool_to_field(has_natspec)),
-            Some(F::from(score as u64)),
-        )
-    }
-
-    fn public_inputs(&self) -> Vec<F> {
-        vec![self.score.unwrap_or(F::zero())]
-    }
-
-    fn constraint_count(&self) -> usize {
-        40 // Estimated constraint count for best practices checks
     }
 }
 

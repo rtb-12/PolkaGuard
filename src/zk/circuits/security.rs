@@ -8,9 +8,8 @@ use ark_ff::{Field, One, PrimeField, Zero};
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use ark_std::vec::Vec;
 
-use super::{bool_to_field, validate_score_range, PolkaGuardCircuit, ZkCircuit};
+use super::{bool_to_field, validate_score_range};
 use crate::models::AnalysisResults;
 
 /// Circuit for security vulnerability validation
@@ -46,53 +45,8 @@ impl<F: Field + PrimeField> SecurityCircuit<F> {
         }
     }
 
-    /// Calculate security score based on vulnerabilities
-    fn calculate_score(
-        &self,
-        vuln_count: &FpVar<F>,
-        has_reentrancy: &FpVar<F>,
-        has_unchecked_calls: &FpVar<F>,
-        has_access_control: &FpVar<F>,
-    ) -> Result<FpVar<F>, SynthesisError> {
-        let hundred = FpVar::constant(F::from(100u32));
-        let fifteen = FpVar::constant(F::from(15u32)); // Base penalty per vulnerability
-        let twenty_five = FpVar::constant(F::from(25u32)); // Reentrancy penalty
-        let twenty = FpVar::constant(F::from(20u32)); // Unchecked calls penalty
-        let thirty = FpVar::constant(F::from(30u32)); // Access control penalty
-
-        // Base score reduction: vuln_count * 15
-        let base_penalty = vuln_count * &fifteen;
-
-        // Additional penalties for specific vulnerability types
-        let reentrancy_penalty = has_reentrancy * &twenty_five;
-        let unchecked_penalty = has_unchecked_calls * &twenty;
-        let access_penalty = has_access_control * &thirty;
-
-        let total_penalty =
-            &base_penalty + &reentrancy_penalty + &unchecked_penalty + &access_penalty;
-        let score = &hundred - &total_penalty;
-
-        // Ensure score >= 0
-        let zero = FpVar::zero();
-        let is_negative = score.is_cmp(&zero, std::cmp::Ordering::Less, false)?;
-        let final_score = FpVar::conditionally_select(&is_negative, &zero, &score)?;
-
-        Ok(final_score)
-    }
-}
-
-impl<F: Field + PrimeField> ZkCircuit<F> for SecurityCircuit<F> {
-    fn generate_constraints(&self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        self.clone().generate_constraints(cs)
-    }
-}
-
-impl<F: Field + PrimeField> PolkaGuardCircuit<F> for SecurityCircuit<F> {
-    fn circuit_id(&self) -> &'static str {
-        "security"
-    }
-
-    fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self {
+    /// Generate circuit from analysis results
+    pub fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self {
         let vulnerability_count = F::from(results.security_vulnerabilities.len() as u64);
 
         // Analyze specific vulnerability types
@@ -136,12 +90,38 @@ impl<F: Field + PrimeField> PolkaGuardCircuit<F> for SecurityCircuit<F> {
         )
     }
 
-    fn public_inputs(&self) -> Vec<F> {
-        vec![self.score.unwrap_or(F::zero())]
-    }
+    /// Calculate security score based on vulnerabilities
+    fn calculate_score(
+        &self,
+        vuln_count: &FpVar<F>,
+        has_reentrancy: &FpVar<F>,
+        has_unchecked_calls: &FpVar<F>,
+        has_access_control: &FpVar<F>,
+    ) -> Result<FpVar<F>, SynthesisError> {
+        let hundred = FpVar::constant(F::from(100u32));
+        let fifteen = FpVar::constant(F::from(15u32)); // Base penalty per vulnerability
+        let twenty_five = FpVar::constant(F::from(25u32)); // Reentrancy penalty
+        let twenty = FpVar::constant(F::from(20u32)); // Unchecked calls penalty
+        let thirty = FpVar::constant(F::from(30u32)); // Access control penalty
 
-    fn constraint_count(&self) -> usize {
-        75 // Estimated constraint count for security checks
+        // Base score reduction: vuln_count * 15
+        let base_penalty = vuln_count * &fifteen;
+
+        // Additional penalties for specific vulnerability types
+        let reentrancy_penalty = has_reentrancy * &twenty_five;
+        let unchecked_penalty = has_unchecked_calls * &twenty;
+        let access_penalty = has_access_control * &thirty;
+
+        let total_penalty =
+            &base_penalty + &reentrancy_penalty + &unchecked_penalty + &access_penalty;
+        let score = &hundred - &total_penalty;
+
+        // Ensure score >= 0
+        let zero = FpVar::zero();
+        let is_negative = score.is_cmp(&zero, std::cmp::Ordering::Less, false)?;
+        let final_score = FpVar::conditionally_select(&is_negative, &zero, &score)?;
+
+        Ok(final_score)
     }
 }
 

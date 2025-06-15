@@ -8,9 +8,8 @@ use ark_ff::{Field, One, PrimeField, Zero};
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use ark_std::vec::Vec;
 
-use super::{validate_score_range, PolkaGuardCircuit, ZkCircuit};
+use super::{validate_score_range};
 use crate::models::AnalysisResults;
 
 /// Circuit for resource usage validation
@@ -40,6 +39,36 @@ impl<F: Field + PrimeField> ResourceCircuit<F> {
             storage_usage,
             score,
         }
+    }
+
+    /// Generate circuit from analysis results
+    pub fn from_analysis(results: &AnalysisResults, _contract_source: &str) -> Self {
+        let ref_time = F::from(results.resource_usage.ref_time);
+        let proof_size = F::from(results.resource_usage.proof_size);
+        let storage_usage = F::from(results.resource_usage.storage_usage);
+
+        // Calculate score based on resource usage
+        let mut score = 100;
+
+        // Apply penalties for high resource usage
+        if results.resource_usage.ref_time > 1_000_000 {
+            score -= 20;
+        }
+        if results.resource_usage.proof_size > 100_000 {
+            score -= 15;
+        }
+        if results.resource_usage.storage_usage > 100_000 {
+            score -= 10;
+        }
+
+        score = std::cmp::max(0, score);
+
+        Self::new(
+            Some(ref_time),
+            Some(proof_size),
+            Some(storage_usage),
+            Some(F::from(score as u64)),
+        )
     }
 
     /// Calculate resource efficiency score
@@ -85,55 +114,6 @@ impl<F: Field + PrimeField> ResourceCircuit<F> {
 
         // If exceeds threshold, apply penalty, otherwise 0
         FpVar::conditionally_select(&exceeds_threshold, &penalty, &zero)
-    }
-}
-
-impl<F: Field + PrimeField> ZkCircuit<F> for ResourceCircuit<F> {
-    fn generate_constraints(&self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        self.clone().generate_constraints(cs)
-    }
-}
-
-impl<F: Field + PrimeField> PolkaGuardCircuit<F> for ResourceCircuit<F> {
-    fn circuit_id(&self) -> &'static str {
-        "resources"
-    }
-
-    fn from_analysis(results: &AnalysisResults, _contract_source: &str) -> Self {
-        let ref_time = F::from(results.resource_usage.ref_time);
-        let proof_size = F::from(results.resource_usage.proof_size);
-        let storage_usage = F::from(results.resource_usage.storage_usage);
-
-        // Calculate score based on resource usage
-        let mut score = 100;
-
-        // Apply penalties for high resource usage
-        if results.resource_usage.ref_time > 1_000_000 {
-            score -= 20;
-        }
-        if results.resource_usage.proof_size > 100_000 {
-            score -= 15;
-        }
-        if results.resource_usage.storage_usage > 100_000 {
-            score -= 10;
-        }
-
-        score = std::cmp::max(0, score);
-
-        Self::new(
-            Some(ref_time),
-            Some(proof_size),
-            Some(storage_usage),
-            Some(F::from(score as u64)),
-        )
-    }
-
-    fn public_inputs(&self) -> Vec<F> {
-        vec![self.score.unwrap_or(F::zero())]
-    }
-
-    fn constraint_count(&self) -> usize {
-        60 // Estimated constraint count for resource checks
     }
 }
 

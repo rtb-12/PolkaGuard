@@ -22,27 +22,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::AnalysisResults;
 
-/// Trait for all PolkaGuard circuits
-pub trait PolkaGuardCircuit<F: Field + PrimeField>: ConstraintSynthesizer<F> {
-    /// Circuit identifier
-    fn circuit_id(&self) -> &'static str;
-
-    /// Generate circuit from analysis results
-    fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self;
-
-    /// Get public inputs for this circuit
-    fn public_inputs(&self) -> Vec<F>;
-
-    /// Get circuit constraints count estimate
-    fn constraint_count(&self) -> usize;
-}
-
-/// Additional trait for circuits that compute scores
-pub trait ZkCircuit<F: Field + PrimeField> {
-    /// Generate constraints and return computed score
-    fn generate_constraints(&self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError>;
-}
-
 /// Master circuit that aggregates all individual circuits
 #[derive(Clone)]
 pub struct MasterCircuit<F: Field + PrimeField> {

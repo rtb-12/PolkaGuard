@@ -8,9 +8,8 @@ use ark_ff::{Field, One, PrimeField, Zero};
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use ark_std::vec::Vec;
 
-use super::{bool_to_field, validate_score_range, PolkaGuardCircuit, ZkCircuit};
+use super::{bool_to_field, validate_score_range};
 use crate::models::AnalysisResults;
 
 /// Circuit for PolkaVM compatibility validation
@@ -42,39 +41,8 @@ impl<F: Field + PrimeField> CompatibilityCircuit<F> {
         }
     }
 
-    /// Calculate compatibility score based on issues
-    fn calculate_score(&self, issue_count: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
-        let hundred = FpVar::constant(F::from(100u32));
-        let ten = FpVar::constant(F::from(10u32));
-
-        // Score = 100 - (issue_count * 10), minimum 0
-        let penalty = issue_count * &ten;
-        let score = &hundred - &penalty;
-
-        // Ensure score >= 0
-        let zero = FpVar::zero();
-        let is_negative = score.is_cmp(&zero, std::cmp::Ordering::Less, false)?;
-
-        // If negative, set to 0, otherwise keep the score
-        let final_score = FpVar::conditionally_select(&is_negative, &zero, &score)?;
-
-        Ok(final_score)
-    }
-}
-
-impl<F: Field + PrimeField> ZkCircuit<F> for CompatibilityCircuit<F> {
-    fn generate_constraints(&self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        // Clone self and call the ConstraintSynthesizer implementation
-        self.clone().generate_constraints(cs)
-    }
-}
-
-impl<F: Field + PrimeField> PolkaGuardCircuit<F> for CompatibilityCircuit<F> {
-    fn circuit_id(&self) -> &'static str {
-        "compatibility"
-    }
-
-    fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self {
+    /// Generate circuit from analysis results
+    pub fn from_analysis(results: &AnalysisResults, contract_source: &str) -> Self {
         let issue_count = F::from(results.compatibility_issues.len() as u64);
         let complexity = F::from(results.complexity as u64);
 
@@ -105,12 +73,29 @@ impl<F: Field + PrimeField> PolkaGuardCircuit<F> for CompatibilityCircuit<F> {
         )
     }
 
-    fn public_inputs(&self) -> Vec<F> {
-        vec![self.score.unwrap_or(F::zero())]
+    /// Calculate compatibility score based on issues
+    fn calculate_score(&self, issue_count: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
+        let hundred = FpVar::constant(F::from(100u32));
+        let ten = FpVar::constant(F::from(10u32));
+
+        // Score = 100 - (issue_count * 10), minimum 0
+        let penalty = issue_count * &ten;
+        let score = &hundred - &penalty;
+
+        // Ensure score >= 0
+        let zero = FpVar::zero();
+        let is_negative = score.is_cmp(&zero, std::cmp::Ordering::Less, false)?;
+
+        // If negative, set to 0, otherwise keep the score
+        let final_score = FpVar::conditionally_select(&is_negative, &zero, &score)?;
+
+        Ok(final_score)
     }
 
-    fn constraint_count(&self) -> usize {
-        50 // Estimated constraint count for compatibility checks
+    /// Get public inputs for testing
+    #[allow(dead_code)]
+    pub fn public_inputs(&self) -> Vec<F> {
+        vec![self.score.unwrap_or(F::zero())]
     }
 }
 
